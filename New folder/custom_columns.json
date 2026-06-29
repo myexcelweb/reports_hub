@@ -1,0 +1,9 @@
+{
+  "AGE_222": {
+    "logic": "Custom SQL",
+    "c1": "",
+    "c2": "",
+    "expr": "floor(date_diff('day', try_strptime(\"REGISTRATION_DATE\", '%d-%m-%Y'), current_date) / 365.25)",
+    "fmt": "%d-%m-%Y"
+  }
+}
