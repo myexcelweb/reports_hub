@@ -1,4 +1,4 @@
-// --- ENHANCED processor.js with Smart Merge Detection ---
+// --- ENHANCED processor.js with Smart Merge Detection, updated IPC SPECIAL (AND with CAT1='CC'), CRMA SPECIAL, and CAT2 renaming ---
 
 import * as XLSX from 'xlsx';
 import DuplicateRemover from './duplicate-remover.js';
@@ -67,24 +67,21 @@ export class CourtCaseProcessor {
 					const sheetName = workbook.SheetNames[0];
 					const worksheet = workbook.Sheets[sheetName];
 					if (!worksheet || !worksheet['!ref']) {
-						return resolve([]); // Resolve with empty array if sheet is empty
+						return resolve([]);
 					}
 
 					// --- ENHANCED MERGE-HANDLING LOGIC ---
 					const range = XLSX.utils.decode_range(worksheet['!ref']);
 					let headerRowIndex = range.s.r;
 
-					// Strategy 1: Check if first row has merges (likely a title)
 					const merges = worksheet['!merges'] || [];
 					const firstRowHasMerges = merges.some(merge => merge.s.r === 0);
 
 					if (firstRowHasMerges) {
 						console.log('✓ Detected merged cells in first row - treating as title');
-						headerRowIndex = 1; // Skip first row
+						headerRowIndex = 1;
 					}
 
-					// Strategy 2: Look for first row with multiple distinct column headers
-					// This catches cases where title row isn't merged but is still a title
 					let maxNonEmptyCount = 0;
 					let bestHeaderRow = headerRowIndex;
 
@@ -100,24 +97,18 @@ export class CourtCaseProcessor {
 							}
 						}
 
-						// A proper header row should have:
-						// 1. Multiple non-empty cells (>3)
-						// 2. Distinct values (not repeated title text)
 						if (non_empty_count > 3 && distinctValues.size > 3) {
 							if (non_empty_count > maxNonEmptyCount) {
 								maxNonEmptyCount = non_empty_count;
 								bestHeaderRow = R;
 							}
-							break; // Found a good header row
+							break;
 						}
 					}
 
-					// Use the best header row we found
 					headerRowIndex = bestHeaderRow;
-
 					console.log(`📋 Using row ${headerRowIndex} as header (0-indexed)`);
 
-					/** @type {DataRow[]} */
 					const jsonData = XLSX.utils.sheet_to_json(worksheet, {
 						defval: null,
 						range: headerRowIndex
@@ -135,8 +126,7 @@ export class CourtCaseProcessor {
 	}
 
 	/**
-	 * Creates and downloads the Excel file using the xlsx library.
-	 * NOW ONLY CONTAINS THE PROCESSED DATA SHEET - NO PIVOT TABLES OR BALANCE SHEETS
+	 * Creates and downloads the Excel file (only processed data sheet).
 	 * @param {DataRow[]} data
 	 * @param {string} fileName
 	 */
@@ -144,13 +134,8 @@ export class CourtCaseProcessor {
 		if (!data) throw new Error('No processed data to download.');
 		try {
 			const workbook = XLSX.utils.book_new();
-
-			// ONLY add the main processed data sheet
 			const mainWorksheet = XLSX.utils.json_to_sheet(data, { dateNF: 'dd-mm-yyyy' });
 			XLSX.utils.book_append_sheet(workbook, mainWorksheet, 'Processed Data');
-
-			// PIVOT TABLES AND BALANCE SHEETS REMOVED - ONLY PROCESSED DATA
-
 			const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
 			const blob = new Blob([excelBuffer], {
 				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -306,8 +291,17 @@ export class CourtCaseProcessor {
 		return slashPos > 0 ? uidStr.substring(0, slashPos).toUpperCase() : 'UNKNOWN';
 	}
 
-	/** @param {string} act */
-	checkIpcSpecial(act) {
+	/**
+	 * UPDATED: Check for IPC SPECIAL.
+	 * Returns 'IPC SPECIAL' ONLY IF:
+	 *   (a) ACT contains specific IPC/BNS sections (old logic), AND
+	 *   (b) CAT1 is exactly 'CC'.
+	 * @param {string} act - The ACT column value.
+	 * @param {string} cat1 - The CAT1 value (extracted from UID).
+	 * @returns {string} 'IPC SPECIAL' if both conditions are met, else ''.
+	 */
+	checkIpcSpecial(act, cat1) {
+		if (cat1 !== 'CC') return '';
 		if (!act) return '';
 		const actStr = String(act);
 		const ipcCodes = ['409', '467', '465', '468', '471'];
@@ -318,7 +312,7 @@ export class CourtCaseProcessor {
 		const hasBnsCode =
 			actStr.includes('THE BHARATIYA NYAYA SANHITA') &&
 			bnsCodes.some((code) => new RegExp(`\\b${code}(\\([0-9]\\))?`).test(actStr));
-		return hasIpcSpecialCode || hasBnsCode ? 'IPC SPECIAL' : '';
+		return (hasIpcSpecialCode || hasBnsCode) ? 'IPC SPECIAL' : '';
 	}
 
 	/** @param {string} act */
@@ -336,19 +330,62 @@ export class CourtCaseProcessor {
 		return hasIpcSpecialCode || hasBnsCode ? 'CASE AGAINST WOMEN' : '';
 	}
 
-	/** @param {DataRow} row */
+	/**
+	 * Check for CRMA SPECIAL (MUDDAMAL).
+	 * Logic: CAT1 = "CRMA J", NATURE = "Other Misc. Appln.",
+	 * ACT contains "THE BHARATIYA NAGARIK SURAKSHA SANHITA" AND at least one of (497, 498, 503)
+	 * @param {DataRow} row
+	 * @returns {string} 'MUDDAMAL' if conditions met, else ''.
+	 */
+	checkCrmaSpecial(row) {
+		const cat1 = String(row['CAT1'] || '').trim();
+		const nature = String(row['NATURE'] || '').trim();
+		const act = String(row['ACT'] || '').trim();
+
+		if (cat1 !== 'CRMA J') return '';
+		if (nature !== 'Other Misc. Appln.') return '';
+
+		const hasPhrase = act.includes('THE BHARATIYA NAGARIK SURAKSHA SANHITA');
+		const hasSection = /\b(497|498|503)\b/.test(act);
+
+		return (hasPhrase && hasSection) ? 'MUDDAMAL' : '';
+	}
+
+	/**
+	 * Create CAT2 by combining CAT1, NATURE, IPC SPECIAL (optional), and CRMA SPECIAL (optional)
+	 * @param {DataRow} row
+	 * @returns {string}
+	 */
 	createCat2(row) {
 		const cat1 = String(row['CAT1'] || '').trim();
 		const nature = String(row['NATURE'] || '').trim();
 		const ipcSpecial = String(row['IPC SPECIAL'] || '').trim();
-		const parts = [cat1, nature, ipcSpecial].filter((part) => part !== '');
+		const crmaSpecial = String(row['CRMA SPECIAL'] || '').trim();
+		const parts = [cat1, nature, ipcSpecial, crmaSpecial].filter(part => part !== '');
 		return parts.length > 0 ? parts.join('/') : 'UNKNOWN';
+	}
+
+	/**
+	 * NEW: Rename specific CAT2 values according to business rules.
+	 * @param {string} cat2 - The original CAT2 value.
+	 * @returns {string} The renamed CAT2 value.
+	 */
+	renameCat2(cat2) {
+		if (!cat2) return cat2;
+		// Exact matches (case-sensitive)
+		if (cat2 === 'CC/IPC/IPC SPECIAL') return 'CC/IPC SPECIAL';
+		if (cat2 === 'CRMA J/Appln under Protection of Woman Domestic') return 'CRMA J/DOMESTIC';
+		if (cat2 === 'CRMA J/Bail Application') return 'CRMA J/BAIL';
+		if (cat2 === 'CRMA J/Other Misc. Appln.') return 'CRMA J/OTHER';
+		if (cat2 === 'CRMA J/Other Misc. Appln./MUDDAMAL') return 'CRMA J/MUDDAMAL';
+		if (cat2 === 'CMA SC/Appl. for Succession & Probate Certi. and Letter of Administration')
+			return 'CMA SC/SUCCESSION-PROBATE-LA';
+		return cat2;
 	}
 
 	/** @param {DataRow[]} data */
 	mapColumnNames(data) {
 		return data.map((row) => {
-			/** @type {DataRow} */
 			const mappedRow = {};
 			Object.entries(row).forEach(([key, value]) => {
 				const trimmedKey = key.trim();
@@ -382,11 +419,15 @@ export class CourtCaseProcessor {
 			processed = this.assignAgeCategories(processed);
 			processed = processed.map((row) => {
 				const uid = row['UID'] || '';
-				row['CAT1'] = this.extractCat1(uid);
-				row['SIDE'] = determineSide(row['CAT1']);
-				row['IPC SPECIAL'] = this.checkIpcSpecial(row['ACT']);
+				const cat1 = this.extractCat1(uid);
+				row['CAT1'] = cat1;
+				row['SIDE'] = determineSide(cat1);
+				row['IPC SPECIAL'] = this.checkIpcSpecial(row['ACT'], cat1);
 				row['CASE AGAINST WOMEN'] = this.checkCaseAgainstWomen(row['ACT']);
-				row['CAT2'] = this.createCat2(row);
+				row['CRMA SPECIAL'] = this.checkCrmaSpecial(row);
+				// Compute CAT2 and then apply renaming
+				const rawCat2 = this.createCat2(row);
+				row['CAT2'] = this.renameCat2(rawCat2);
 				return row;
 			});
 			this.processedData = processed;
@@ -423,10 +464,6 @@ export class CourtCaseProcessor {
 			summary.avgAgePending = (totalAgeYears / validPendingCases.length).toFixed(2);
 
 			const oldest = validPendingCases.reduce(
-				/**
-				 * @param {{age: number, uid: string}} maxAgeCase
-				 * @param {DataRow} currentCase
-				 */
 				(maxAgeCase, currentCase) => {
 					const currentAge = Number(currentCase.AGE_Y) || 0;
 					if (currentAge > maxAgeCase.age) {
@@ -444,4 +481,3 @@ export class CourtCaseProcessor {
 }
 
 // --- END OF FILE processor.js ---
-
