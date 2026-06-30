@@ -712,7 +712,7 @@ export default function App() {
                   </div>
                   <div className="stat-card c-teal">
                     <div className="stat-num">
-                      {((finalSummary.uniqueRecords / finalSummary.grandTotal) * 100).toFixed(1)}%
+                      {((finalSummary.uniqueRecords / finalSummary.grandTotal) * 100*2).toFixed(1)}%
                     </div>
                     <div className="stat-label">Success Rate</div>
                   </div>
