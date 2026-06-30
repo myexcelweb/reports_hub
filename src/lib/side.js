@@ -89,7 +89,6 @@ const civilCases = new Set([
 	'SMC PSRP',
 	'SMCST',
 	'SMP',
-	'SMRY',
 	'SMST R',
 	'SMST S',
 	'SPCS',
