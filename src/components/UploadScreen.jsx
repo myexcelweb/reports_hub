@@ -731,7 +731,7 @@ export default function UploadScreen({
 
                     <p className="instructions-footnote">
                         <InfoIcon size={13} />
-                        <span>Upload only original CIS-downloaded files. Any Excel file is accepted — we'll flag it if we can't classify it.</span>
+                        <span>Upload only original CIS-downloaded files. </span>
                     </p>
 
                     <div className="instructions-note">
