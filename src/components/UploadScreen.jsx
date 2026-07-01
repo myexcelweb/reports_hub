@@ -1,5 +1,6 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import cisGuideImage from '../assets/cis-file-download-guide.png';
 
 // ─── Icon helper (feather-style, matches App.jsx) ───────────────────────────
 const Icon = ({ d, size = 20, color = 'currentColor', strokeWidth = 2, ...rest }) => (
@@ -17,6 +18,8 @@ const InfoIcon = (p) => <Icon {...p} d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20
 const XIcon = (p) => <Icon {...p} d="M18 6 6 18M6 6l12 12" />;
 const ZapIcon = (p) => <Icon {...p} d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />;
 const ShieldIcon = (p) => <Icon {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />;
+const ImageIcon = (p) => <Icon {...p} d="M3 3h18v18H3zM8.5 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM21 15l-5-5L5 21" />;
+const ChevronDownIcon = (p) => <Icon {...p} d="m6 9 6 6 6-6" />;
 
 // ─── Helpers for file detection ─────────────────────────────────────────────
 const KNOWN_COLUMNS = [
@@ -116,6 +119,7 @@ export default function UploadScreen({
     onRemoveFile,
 }) {
     const fileInputRef = useRef(null);
+    const [guideOpen, setGuideOpen] = useState(false);
 
     // ── Compute warnings ──
     const computeWarnings = (items) => {
@@ -271,8 +275,8 @@ export default function UploadScreen({
     const instructionItems = [
         { label: 'Pending — Dashboard file' },
         { label: 'Pending — Query Builder file' },
-        { label: 'Disposed — Dashboard file', hint: 'Same date range as Query Builder' },
-        { label: 'Disposed — Query Builder file', hint: 'Same date range as Dashboard' },
+        { label: 'Disposed — Dashboard file', hint: 'must use the same date range as the Disposed Query Builder file' },
+        { label: 'Disposed — Query Builder file', hint: 'must use the same date range as the Disposed Dashboard file' },
     ];
 
     return (
@@ -386,6 +390,67 @@ export default function UploadScreen({
         .instructions-points li svg {
           flex-shrink: 0;
           margin-top: 2px;
+        }
+        .important-label {
+          font-size: .72rem;
+          font-weight: 700;
+          letter-spacing: .03em;
+          text-transform: uppercase;
+          color: var(--navy, #0F1E35);
+          margin: 0.75rem 0 0.35rem;
+        }
+
+        /* ── Download guide toggle ── */
+        .guide-toggle {
+          display: flex;
+          align-items: center;
+          gap: .4rem;
+          width: 100%;
+          margin-top: 0.8rem;
+          padding: 0.55rem 0.7rem;
+          background: var(--slate, #F0F4F8);
+          border: 1px solid var(--border, #E2E8F0);
+          border-radius: 9px;
+          cursor: pointer;
+          font-size: .78rem;
+          font-weight: 600;
+          color: var(--teal-d, #009D90);
+          transition: background .15s, border-color .15s;
+        }
+        .guide-toggle:hover {
+          background: rgba(0,194,178,.08);
+          border-color: var(--teal, #00C2B2);
+        }
+        .guide-toggle span {
+          flex: 1;
+          text-align: left;
+        }
+        .guide-toggle .chevron {
+          transition: transform .2s;
+          flex-shrink: 0;
+        }
+        .guide-toggle .chevron.open {
+          transform: rotate(180deg);
+        }
+        .guide-image-wrap {
+          margin-top: 0.6rem;
+          border: 1px solid var(--border, #E2E8F0);
+          border-radius: 10px;
+          overflow: hidden;
+          background: var(--slate, #F0F4F8);
+          max-width: 40%;
+          margin-left: auto;
+          margin-right: auto;
+        }
+        .guide-image {
+          display: block;
+          width: 100%;
+          height: auto;
+        }
+        @media (max-width: 700px) {
+          .guide-image-wrap {
+            max-width: 85%;
+          }
         }
 
         /* ── Dropzone ── */
@@ -669,25 +734,47 @@ export default function UploadScreen({
                             <li key={i}>
                                 <CheckCircleIcon size={13} className="item-check" />
                                 <span>{it.label}</span>
-                                {it.hint && <span className="item-hint">— {it.hint}</span>}
+                                {it.hint && <span className="item-hint">({it.hint})</span>}
                             </li>
                         ))}
                     </ul>
 
+                    <div className="important-label">Important:</div>
                     <ul className="instructions-points">
                         <li>
                             <InfoIcon size={13} />
-                            <span>Upload only original files downloaded from CIS Software</span>
+                            <span>Upload only original files downloaded from CIS Software.</span>
                         </li>
                         <li>
                             <FileTextIcon size={13} />
-                            <span>Only Excel files (.xlsx or .xls) are accepted.</span>
+                            <span>Only Excel (.xlsx or .xls) files are accepted.</span>
                         </li>
                         <li>
                             <ShieldIcon size={13} />
-                            <span>Please don't edit or reformat files before uploading — this can break classification.</span>
+                            <span>Do not edit or reformat the files before uploading, as this may cause incorrect processing or classification.</span>
                         </li>
                     </ul>
+
+                    <button
+                        type="button"
+                        className="guide-toggle"
+                        onClick={() => setGuideOpen(o => !o)}
+                        aria-expanded={guideOpen}
+                    >
+                        <ImageIcon size={14} />
+                        <span>{guideOpen ? 'Hide' : 'View'} CIS Software file download guide</span>
+                        <ChevronDownIcon size={14} className={`chevron ${guideOpen ? 'open' : ''}`} />
+                    </button>
+
+                    {guideOpen && (
+                        <div className="guide-image-wrap">
+                            <img
+                                src={cisGuideImage}
+                                alt="Guide showing where to download Pending and Disposed Dashboard and Query Builder reports from CIS Software"
+                                className="guide-image"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <div
