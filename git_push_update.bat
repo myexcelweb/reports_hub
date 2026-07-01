@@ -62,6 +62,22 @@ if errorlevel 1 (
 )
 del "%msgfile%" >nul 2>&1
 
+:: Pull latest changes first so push isn't rejected as non-fast-forward
+echo.
+echo Syncing with origin/%branch% before push...
+git fetch origin
+git pull --rebase origin %branch%
+if errorlevel 1 (
+    echo.
+    echo ERROR: git pull --rebase hit a conflict or failed.
+    echo Resolve the conflict manually in the listed file(s), then run:
+    echo    git add .
+    echo    git rebase --continue
+    echo Then re-run this script to push.
+    pause
+    exit /b 1
+)
+
 :: Push to whatever branch we're actually on
 echo.
 echo Pushing to branch: %branch%
