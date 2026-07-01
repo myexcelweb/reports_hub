@@ -677,7 +677,7 @@ export default function UploadScreen({
                     <ul className="instructions-points">
                         <li>
                             <InfoIcon size={13} />
-                            <span>Upload only original CIS-downloaded files.</span>
+                            <span>Upload only original files downloaded from CIS Software</span>
                         </li>
                         <li>
                             <FileTextIcon size={13} />
