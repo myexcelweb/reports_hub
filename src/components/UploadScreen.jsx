@@ -17,7 +17,6 @@ const InfoIcon = (p) => <Icon {...p} d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20
 const XIcon = (p) => <Icon {...p} d="M18 6 6 18M6 6l12 12" />;
 const ZapIcon = (p) => <Icon {...p} d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />;
 const ShieldIcon = (p) => <Icon {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />;
-const LinkIcon = (p) => <Icon {...p} d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />;
 
 // ─── Helpers for file detection ─────────────────────────────────────────────
 const KNOWN_COLUMNS = [
@@ -270,10 +269,10 @@ export default function UploadScreen({
     };
 
     const instructionItems = [
-        { label: 'Pending', tone: 'pending', detail: 'Dashboard file' },
-        { label: 'Pending', tone: 'pending', detail: 'Query Builder file' },
-        { label: 'Disposed', tone: 'disposed', detail: 'Dashboard file', hint: 'Same date range as Query Builder' },
-        { label: 'Disposed', tone: 'disposed', detail: 'Query Builder file', hint: 'Same date range as Dashboard' },
+        { label: 'Pending — Dashboard file' },
+        { label: 'Pending — Query Builder file' },
+        { label: 'Disposed — Dashboard file', hint: 'Same date range as Query Builder' },
+        { label: 'Disposed — Query Builder file', hint: 'Same date range as Dashboard' },
     ];
 
     return (
@@ -327,7 +326,7 @@ export default function UploadScreen({
           display: flex;
           align-items: center;
           gap: .5rem;
-          margin-bottom: 0.7rem;
+          margin-bottom: 0.6rem;
         }
         .upload-instructions-head .head-icon {
           width: 26px;
@@ -345,94 +344,48 @@ export default function UploadScreen({
           font-size: 0.88rem;
           letter-spacing: -.01em;
         }
-        .instructions-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.5rem;
-          margin-bottom: 0.7rem;
+        .file-type-list {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 0.7rem 0;
         }
-        .instruction-item {
+        .file-type-list li {
           display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          background: var(--slate, #F0F4F8);
-          border-radius: 9px;
-          padding: 0.55rem 0.7rem;
+          align-items: baseline;
+          gap: 0.4rem;
+          font-size: .8rem;
+          color: var(--text, #1A202C);
+          padding: 0.3rem 0;
+          border-bottom: 1px solid var(--border, #E2E8F0);
         }
-        .instruction-item .item-top {
-          display: flex;
-          align-items: center;
-          gap: .45rem;
+        .file-type-list li:last-child {
+          border-bottom: none;
         }
-        .instruction-item .item-check {
+        .file-type-list .item-check {
           color: var(--teal, #00C2B2);
           flex-shrink: 0;
         }
-        .instruction-item .item-badge {
-          font-size: .62rem;
-          font-weight: 800;
-          letter-spacing: .04em;
-          text-transform: uppercase;
-          padding: 0.15rem 0.45rem;
-          border-radius: 99px;
-          flex-shrink: 0;
-        }
-        .instruction-item .item-badge.badge-pending {
-          background: rgba(0,194,178,.14);
-          color: #007A70;
-        }
-        .instruction-item .item-badge.badge-disposed {
-          background: rgba(245,166,35,.16);
-          color: #92600C;
-        }
-        .instruction-item .item-detail {
-          font-size: .8rem;
-          font-weight: 600;
-          color: var(--text, #1A202C);
-        }
-        .instruction-item .item-hint {
-          display: flex;
-          align-items: center;
-          gap: .35rem;
-          font-size: .7rem;
+        .file-type-list .item-hint {
           color: var(--muted, #64748B);
-          padding-top: 0.35rem;
-          margin-top: 0.05rem;
-          border-top: 1px dashed var(--border, #E2E8F0);
+          font-size: .72rem;
         }
-        .instruction-item .item-hint svg {
-          flex-shrink: 0;
-          opacity: .7;
+        .instructions-points {
+          list-style: none;
+          padding: 0;
+          margin: 0;
         }
-        .instructions-footnote {
+        .instructions-points li {
           display: flex;
           align-items: flex-start;
           gap: .4rem;
           font-size: .74rem;
           color: var(--muted, #64748B);
           line-height: 1.45;
+          margin-top: 0.35rem;
         }
-        .instructions-footnote svg {
+        .instructions-points li svg {
           flex-shrink: 0;
           margin-top: 2px;
-          color: var(--muted, #64748B);
-        }
-        .instructions-note {
-          display: flex;
-          align-items: center;
-          gap: .4rem;
-          font-size: .74rem;
-          color: #92400E;
-          background: #FFFBEB;
-          border: 1px solid #FDE68A;
-          border-radius: 8px;
-          padding: 0.45rem 0.65rem;
-          margin-top: 0.6rem;
-        }
-        @media (max-width: 600px) {
-          .instructions-grid {
-            grid-template-columns: 1fr;
-          }
         }
 
         /* ── Dropzone ── */
@@ -711,33 +664,30 @@ export default function UploadScreen({
                         <h5>Upload Instructions</h5>
                     </div>
 
-                    <div className="instructions-grid">
+                    <ul className="file-type-list">
                         {instructionItems.map((it, i) => (
-                            <div key={i} className="instruction-item">
-                                <div className="item-top">
-                                    <CheckCircleIcon size={14} className="item-check" />
-                                    <span className={`item-badge badge-${it.tone}`}>{it.label}</span>
-                                    <span className="item-detail">{it.detail}</span>
-                                </div>
-                                {it.hint && (
-                                    <div className="item-hint">
-                                        <LinkIcon size={11} />
-                                        <span>{it.hint}</span>
-                                    </div>
-                                )}
-                            </div>
+                            <li key={i}>
+                                <CheckCircleIcon size={13} className="item-check" />
+                                <span>{it.label}</span>
+                                {it.hint && <span className="item-hint">— {it.hint}</span>}
+                            </li>
                         ))}
-                    </div>
+                    </ul>
 
-                    <p className="instructions-footnote">
-                        <InfoIcon size={13} />
-                        <span>Upload only original CIS-downloaded files. </span>
-                    </p>
-
-                    <div className="instructions-note">
-                        <ShieldIcon size={13} />
-                        <span>Please don't edit or reformat files before uploading — this can break classification.</span>
-                    </div>
+                    <ul className="instructions-points">
+                        <li>
+                            <InfoIcon size={13} />
+                            <span>Upload only original CIS-downloaded files.</span>
+                        </li>
+                        <li>
+                            <FileTextIcon size={13} />
+                            <span>Only Excel files (.xlsx or .xls) are accepted.</span>
+                        </li>
+                        <li>
+                            <ShieldIcon size={13} />
+                            <span>Please don't edit or reformat files before uploading — this can break classification.</span>
+                        </li>
+                    </ul>
                 </div>
 
                 <div
