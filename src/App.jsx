@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useCourtCaseProcessor } from './hooks/useCourtCaseProcessor';
 import ReportSelector from './components/ReportSelector';
+import UploadScreen from './components/UploadScreen';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const Icon = ({ d, size = 20, color = 'currentColor', ...rest }) => (
@@ -18,7 +19,6 @@ const CheckIcon = (p) => <Icon {...p} d="M20 6L9 17l-5-5" />;
 const XIcon = (p) => <Icon {...p} d="M18 6L6 18M6 6l12 12" />;
 const DownloadIcon = (p) => <Icon {...p} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />;
 const PlusIcon = (p) => <Icon {...p} d="M12 5v14M5 12h14" />;
-const SparkIcon = (p) => <Icon {...p} d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />;
 const ExternalLinkIcon = (p) => <Icon {...p} d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -126,153 +126,7 @@ const css = `
     flex-direction: column;
   }
 
-  /* ── Upload Tab – Compact Layout ── */
-  .upload-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: calc(100vh - 160px);
-  }
-  .upload-hero {
-    text-align: center;
-    padding: 0.75rem 0 0.25rem;
-  }
-  .upload-hero h2 {
-    font-size: 1.5rem;
-    font-weight: 800;
-    letter-spacing: -.03em;
-    color: var(--navy);
-    margin-bottom: 0.1rem;
-  }
-  .upload-hero p {
-    color: var(--muted);
-    font-size: .85rem;
-    margin-top: 0.1rem;
-  }
-
-  .upload-instructions {
-    background: var(--white);
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    padding: 0.6rem 1rem;
-    margin-bottom: 0.6rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,.04);
-    flex-shrink: 0;
-  }
-  .upload-instructions h5 {
-    font-weight: 700;
-    color: var(--navy);
-    margin-bottom: 0.2rem;
-    font-size: 0.85rem;
-  }
-  .upload-instructions ul {
-    list-style: none;
-    padding: 0;
-    margin: 0.2rem 0 0 0;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.15rem 1.5rem;
-  }
-  .upload-instructions li {
-    font-size: .75rem;
-    color: var(--text);
-    padding: 0.1rem 0;
-    position: relative;
-    padding-left: 1rem;
-  }
-  .upload-instructions li::before {
-    content: "•";
-    color: var(--teal);
-    font-weight: bold;
-    position: absolute;
-    left: 0;
-  }
-  .upload-instructions .note {
-    font-size: .7rem;
-    color: var(--muted);
-    margin-top: 0.2rem;
-    font-style: italic;
-    border-top: 1px solid var(--border);
-    padding-top: 0.2rem;
-  }
-  @media (max-width: 600px) {
-    .upload-instructions ul { grid-template-columns: 1fr; }
-  }
-
-  .dropzone {
-    border: 2px dashed var(--border);
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all .22s;
-    background: var(--white);
-    flex-shrink: 0;
-  }
-  .dropzone:hover, .dropzone.dragging {
-    border-color: var(--teal);
-    background: rgba(0,194,178,.04);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(0,194,178,.1);
-  }
-  .dropzone-icon {
-    width: 48px;
-    height: 48px;
-    background: rgba(0,194,178,.1);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 0.4rem;
-  }
-  .dropzone h3 {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 0.1rem;
-  }
-  .dropzone p {
-    font-size: .78rem;
-    color: var(--muted);
-    margin-top: 0.1rem;
-  }
-
-  .file-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.5rem;
-    flex-shrink: 0;
-    max-height: 80px;
-    overflow-y: auto;
-  }
-  .file-chip {
-    display: flex;
-    align-items: center;
-    gap: .4rem;
-    background: var(--white);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: .3rem .7rem;
-    font-size: .75rem;
-    font-weight: 500;
-    color: var(--text);
-    box-shadow: 0 1px 4px rgba(0,0,0,.05);
-  }
-  .file-chip .chip-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-  .file-chip .chip-size { color: var(--muted); font-size: .7rem; }
-  .chip-remove { background: none; border: none; cursor: pointer; color: var(--muted); display: flex; align-items: center; transition: color .15s; padding: 0 2px; }
-  .chip-remove:hover { color: var(--red); }
-
-  .process-wrapper {
-    margin-top: auto;
-    padding-top: 0.5rem;
-    position: sticky;
-    bottom: 0;
-    background: var(--slate);
-    z-index: 5;
-    padding-bottom: 0.25rem;
-  }
+  /* ── Upload Tab styles now live in src/components/UploadScreen.jsx ── */
 
   .btn-primary {
     background: var(--teal); color: var(--navy);
@@ -293,15 +147,6 @@ const css = `
     cursor: pointer; transition: all .18s; display: flex; align-items: center; gap: .5rem;
   }
   .btn-outline:hover { background: rgba(0,194,178,.07); }
-
-  /* ── Progress ── */
-  .progress-wrap { background: #E2E8F0; border-radius: 99px; height: 6px; overflow: hidden; }
-  .progress-bar {
-    height: 100%; background: linear-gradient(90deg, var(--teal), var(--amber));
-    border-radius: 99px; transition: width .35s ease;
-    animation: shimmer 1.5s infinite;
-  }
-  @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:.75} }
 
   /* ── Stat Cards ── */
   .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 2rem; }
@@ -475,11 +320,10 @@ const css = `
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [files, setFiles] = useState([]);
-  const [fileStatuses, setFileStatuses] = useState([]);
+  const [fileItems, setFileItems] = useState([]);
+  const [warnings, setWarnings] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState('upload');
-  const fileInputRef = useRef(null);
   const detailInputRef = useRef(null);
 
   const {
@@ -508,29 +352,23 @@ export default function App() {
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 4500);
   };
 
-  const handleFileSelection = (selectedFiles) => {
-    const accepted = Array.from(selectedFiles).filter(f =>
-      f.name.endsWith('.xlsx') || f.name.endsWith('.xls')
-    );
-    if (accepted.length > 0) {
-      setFiles(prev => [...prev, ...accepted]);
-      setFileStatuses(prev => [
-        ...prev,
-        ...accepted.map(f => ({ name: f.name, size: f.size, status: 'pending' })),
-      ]);
-      notify(`${accepted.length} file(s) added`, 'success');
-    } else {
-      notify('Only .xlsx and .xls files are accepted', 'danger');
-    }
+  const handleProcess = () => {
+    if (fileItems.length === 0) return;
+    const files = fileItems.map(item => item.file);
+    const updateStatus = (fileName, status) => {
+      setFileItems(prev =>
+        prev.map(item =>
+          item.name === fileName ? { ...item, status } : item
+        )
+      );
+    };
+    processFiles(files, (fileName, status) => updateStatus(fileName, status));
   };
 
   const removeFile = (i) => {
-    setFiles(prev => prev.filter((_, idx) => idx !== i));
-    setFileStatuses(prev => prev.filter((_, idx) => idx !== i));
+    setFileItems(prev => prev.filter((_, idx) => idx !== i));
     notify('File removed', 'warning');
   };
-
-  const handleProcess = () => files.length > 0 && processFiles(files, setFileStatuses);
 
   const tabs = [
     { key: 'upload', label: 'Data Upload', Icon: UploadIcon },
@@ -601,87 +439,20 @@ export default function App() {
 
           {/* ═══════════ UPLOAD TAB ═══════════ */}
           {activeTab === 'upload' && (
-            <div className="upload-wrapper">
-              <div className="upload-hero">
-                <h2>Upload Court Case Files</h2>
-                <p>Drop your Excel files below — we'll handle deduplication and analytics automatically.</p>
-              </div>
-
-              {/* Upload Instructions */}
-              <div className="upload-instructions">
-                <h5>📋 Upload Instructions</h5>
-                <ul>
-                  <li>Upload only original CIS downloaded files.</li>
-                  <li><strong>Pending</strong> – Dashboard file</li>
-                  <li><strong>Pending</strong> – Query Builder file</li>
-                  <li><strong>Disposed</strong> – Dashboard file <em>(same date range as Query Builder)</em></li>
-                  <li><strong>Disposed</strong> – Query Builder file <em>(same date range as Dashboard)</em></li>
-                </ul>
-                <div className="note">⚠️ Do not modify the files before uploading.</div>
-              </div>
-
-              {/* Dropzone */}
-              <div
-                className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={e => { e.preventDefault(); setIsDragging(false); handleFileSelection(e.dataTransfer.files); }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple
-                  className="d-none" style={{ display: 'none' }}
-                  onChange={e => e.target.files && handleFileSelection(e.target.files)} />
-
-                <div className="dropzone-icon">
-                  <UploadIcon size={28} color="var(--teal)" />
-                </div>
-                <h3>Drag & drop Excel files here</h3>
-                <p>or click to browse · .xlsx and .xls supported</p>
-              </div>
-
-              {/* File chips */}
-              {files.length > 0 && (
-                <div className="file-chips">
-                  {files.map((f, i) => (
-                    <div key={i} className="file-chip">
-                      <FileIcon size={14} color="var(--green)" />
-                      <span className="chip-name" title={f.name}>{f.name}</span>
-                      <span className="chip-size">{(f.size / 1024).toFixed(0)} KB</span>
-                      <button className="chip-remove" onClick={() => removeFile(i)}>
-                        <XIcon size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Process Button – Sticky at bottom */}
-              <div className="process-wrapper">
-                <button
-                  className="btn-primary"
-                  disabled={isProcessing || files.length === 0}
-                  onClick={handleProcess}
-                >
-                  {isProcessing ? (
-                    <>Processing…</>
-                  ) : (
-                    <><SparkIcon size={17} />Process {files.length > 0 ? `${files.length} File(s)` : 'Files'}</>
-                  )}
-                </button>
-
-                {isProcessing && (
-                  <div className="mt-sm">
-                    <div className="flex items-center" style={{ justifyContent: 'space-between', marginBottom: '.25rem', fontSize: '.75rem', color: 'var(--muted)' }}>
-                      <span>{progressText}</span>
-                      <strong style={{ color: 'var(--teal)' }}>{progress}%</strong>
-                    </div>
-                    <div className="progress-wrap">
-                      <div className="progress-bar" style={{ width: `${progress}%` }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <UploadScreen
+              fileItems={fileItems}
+              setFileItems={setFileItems}
+              warnings={warnings}
+              setWarnings={setWarnings}
+              isDragging={isDragging}
+              setIsDragging={setIsDragging}
+              isProcessing={isProcessing}
+              progress={progress}
+              progressText={progressText}
+              notify={notify}
+              onProcess={handleProcess}
+              onRemoveFile={removeFile}
+            />
           )}
 
           {/* ═══════════ REPORTS TAB ═══════════ */}
@@ -747,25 +518,28 @@ export default function App() {
               </div>
               <input ref={detailInputRef} type="file" accept=".xlsx,.xls" multiple
                 style={{ display: 'none' }}
-                onChange={e => e.target.files && handleFileSelection(e.target.files)} />
+                onChange={() => notify('Please use the Upload tab to add files.', 'info')} />
 
               <div className="file-list">
-                <div className="file-list-header">Uploaded Files · {files.length} total</div>
-                {files.length === 0 ? (
+                <div className="file-list-header">Uploaded Files · {fileItems.length} total</div>
+                {fileItems.length === 0 ? (
                   <div className="report-empty" style={{ minHeight: 120 }}>
                     <p>No files uploaded yet.</p>
                   </div>
                 ) : (
-                  files.map((file, i) => (
+                  fileItems.map((item, i) => (
                     <div key={i} className="file-row">
                       <div className="file-row-icon">
-                        <FileIcon size={18} color="var(--green)" />
+                        <FileIcon size={18} color={item.type ? "var(--green)" : "var(--amber)"} />
                       </div>
                       <div className="file-row-info">
-                        <div className="file-row-name">{file.name}</div>
-                        <div className="file-row-size">{(file.size / 1024).toFixed(0)} KB</div>
+                        <div className="file-row-name">{item.name}</div>
+                        <div className="file-row-size">
+                          {(item.size / 1024).toFixed(0)} KB
+                          {!item.type && <span style={{ marginLeft: '0.5rem', color: 'var(--amber)' }}>⚠️ Unknown type</span>}
+                        </div>
                       </div>
-                      <div className={`status-dot ${fileStatuses[i]?.status === 'done' ? 'done' : fileStatuses[i]?.status === 'error' ? 'error' : 'pending'}`} />
+                      <div className={`status-dot ${item.status === 'done' ? 'done' : item.status === 'error' ? 'error' : 'pending'}`} />
                       <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}
                         onClick={() => removeFile(i)}>
                         <TrashIcon size={16} />
@@ -777,7 +551,7 @@ export default function App() {
 
               <div className="mt-xl">
                 <button className="btn-primary w-full"
-                  disabled={isProcessing || files.length === 0}
+                  disabled={isProcessing || fileItems.length === 0}
                   onClick={handleProcess}
                   style={{ justifyContent: 'center' }}
                 >
