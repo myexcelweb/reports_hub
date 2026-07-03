@@ -1,3 +1,4 @@
+// src/hooks/useCourtCaseProcessor.js
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CourtCaseProcessor as Processor } from '../lib/processor';
@@ -11,6 +12,7 @@ import {
     normalizeRU
 } from '../lib/caseFilters';
 import { buildBalanceSheet } from '../lib/balanceSheet';
+import { applyDateFilter } from '../lib/dateFilter';  // NEW import
 
 // Helper to sanitize sheet names – replace invalid Excel sheet name characters
 const sanitizeSheetName = (name) => {
@@ -46,7 +48,7 @@ export const useCourtCaseProcessor = () => {
         setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
     };
 
-    // ---- Process files ----
+    // ---- Original processFiles (without date filter) ----
     const processFiles = async (files, updateFileStatusesCallback) => {
         if (!files || files.length === 0) {
             addNotification('No files selected. Please choose files first.', 'danger');
@@ -129,6 +131,102 @@ export const useCourtCaseProcessor = () => {
             duplicatesRemoved: summary.duplicatesRemoved,
             uniqueRecords: summary.totalRecordsProcessed,
             statusSideSummary
+        });
+
+        setProgress(100);
+        setProgressText('Processing complete!');
+        setIsProcessing(false);
+    };
+
+    // ---- NEW: processFilesWithDates (applies date filter) ----
+    const processFilesWithDates = async (files, fromDate, toDate, updateFileStatusesCallback) => {
+        if (!files || files.length === 0) {
+            addNotification('No files selected. Please choose files first.', 'danger');
+            return;
+        }
+
+        setIsProcessing(true);
+        setFinalSummary(null);
+        setProgress(0);
+        setProgressText('Starting...');
+
+        const processor = new Processor();
+        let allData = [];
+        const fileStats = [];
+        const totalFiles = files.length;
+
+        for (let i = 0; i < totalFiles; i++) {
+            const file = files[i];
+            setProgressText(`Reading file ${i + 1}/${totalFiles}: ${file.name}`);
+            setProgress(Math.round(((i + 1) / totalFiles) * 50));
+            updateFileStatusesCallback(prev => prev.map(fs => fs.name === file.name ? { ...fs, status: 'reading' } : fs));
+
+            try {
+                const fileData = await processor.readExcelFile(file);
+                if (fileData && fileData.length > 0) {
+                    allData = allData.concat(fileData);
+                    fileStats.push({ fileName: file.name, status: 'Read', rowCount: fileData.length, error: null });
+                    updateFileStatusesCallback(prev => prev.map(fs => fs.name === file.name ? { ...fs, status: 'success', rowCount: fileData.length } : fs));
+                } else {
+                    fileStats.push({ fileName: file.name, status: 'Empty', rowCount: 0, error: null });
+                    updateFileStatusesCallback(prev => prev.map(fs => fs.name === file.name ? { ...fs, status: 'empty' } : fs));
+                }
+            } catch (fileError) {
+                const message = fileError instanceof Error ? fileError.message : String(fileError);
+                fileStats.push({ fileName: file.name, status: 'Error', rowCount: 0, error: message });
+                updateFileStatusesCallback(prev => prev.map(fs => fs.name === file.name ? { ...fs, status: 'error', error: message } : fs));
+            }
+        }
+
+        if (allData.length === 0) {
+            setFinalSummary({
+                fileStats,
+                grandTotal: 0,
+                duplicatesRemoved: 0,
+                uniqueRecords: 0,
+                statusSideSummary: { pendingCivil: 0, pendingCriminal: 0, disposeCivil: 0, disposeCriminal: 0 }
+            });
+            setIsProcessing(false);
+            return;
+        }
+
+        setProgress(75);
+        setProgressText('Processing combined data...');
+        const processed = processor.processData(allData);
+
+        // --- Apply date filter ---
+        setProgress(85);
+        setProgressText('Applying date filter...');
+        const { pending, disposed, stats } = applyDateFilter(processed, fromDate, toDate);
+
+        // Merge pending and disposed back into one array for reporting (optional)
+        // We'll keep them separate but we can also combine with a flag
+        const filteredData = [...pending, ...disposed];
+        setProcessedData(filteredData);
+
+        setProgress(90);
+        setProgressText('Generating summary...');
+        // Compute summary based on filtered data
+        const statusSideSummary = {
+            pendingCivil: pending.filter(r => r.SIDE === 'CIVIL').length,
+            pendingCriminal: pending.filter(r => r.SIDE === 'CRIMINAL').length,
+            disposeCivil: disposed.filter(r => r.SIDE === 'CIVIL').length,
+            disposeCriminal: disposed.filter(r => r.SIDE === 'CRIMINAL').length,
+        };
+
+        setFinalSummary({
+            fileStats,
+            grandTotal: stats.totalValid,
+            // FIX: this used to be `stats.totalOriginal - stats.totalValid`, which is
+            // actually the count of records IGNORED because they were registered
+            // after the AS-ON (TO) date — not duplicates at all. Real duplicate
+            // merging already happened inside processor.processData() above, and
+            // the correct count lives on processor.stats.duplicatesRemoved (same
+            // value the non-date-filter path already used via summary.duplicatesRemoved).
+            duplicatesRemoved: processor.stats.duplicatesRemoved,
+            uniqueRecords: filteredData.length,
+            statusSideSummary,
+            dateFilterStats: stats, // extra detail (includes stats.ignoredAfterRegistration)
         });
 
         setProgress(100);
@@ -248,7 +346,7 @@ export const useCourtCaseProcessor = () => {
         }
     };
 
-    // ===== Helper builders =====
+    // ===== Helper builders (unchanged from original) =====
 
     // ---- PART1 ----
     function buildPart1SheetData(processedData) {
@@ -662,7 +760,8 @@ export const useCourtCaseProcessor = () => {
         finalSummary,
         notifications,
         setNotifications,
-        processFiles,
+        processFiles,               // original (no date filter)
+        processFilesWithDates,      // new (with FROM/TO dates)
         downloadExcel,
         downloadAllReports,
     };

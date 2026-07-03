@@ -4,6 +4,21 @@ import Button from 'react-bootstrap/Button';
 import { FileEarmarkExcel, FileEarmarkPdf, ArrowsFullscreen, FullscreenExit } from 'react-bootstrap-icons';
 import { exportRowsToExcel, exportRowsToPdf, timestamp } from '../lib/exportFile';
 
+// ---- FIX: internal bookkeeping fields written by lib/dateFilter.js ----
+// When a case was DISPOSED after the "TO / AS ON" date, applyDateFilter()
+// correctly reclassifies it back to STATUS: 'PENDING' (per the C# business
+// rule) — but it stamps 3 debug fields onto that row: IsStillPendingFromDisposed,
+// NextDate, Purpose. Every other report only reads STATUS/SIDE/CAT2, so those
+// fields are invisible there and the numbers "look" fine. AllDataTable is the
+// only report that dumps every raw key as a column, so it was the only place
+// these leaked out as junk columns — AND the only place you'd see the
+// original 'DATE OF DIS' sitting after your TO date on a row now marked
+// PENDING, which reads as "the date filter didn't apply" even though it did.
+// We hide the raw debug fields from the generic column list and instead
+// surface a single, clearly-labeled "FILTER NOTE" column that explains why
+// that row looks the way it does.
+const META_FIELDS = ['IsStillPendingFromDisposed', 'NextDate', 'Purpose'];
+
 export default function AllDataTable({ processedData }) {
   const [busy, setBusy] = useState(null); // 'excel' | 'pdf' | null
   const [searchTerms, setSearchTerms] = useState({});
@@ -15,7 +30,49 @@ export default function AllDataTable({ processedData }) {
     return <p className="text-muted text-center">No processed data to display.</p>;
   }
 
-  const columns = Object.keys(processedData[0] || {});
+  // ---- FIX: build column list from the UNION of keys across ALL rows ----
+  // Previously this used `Object.keys(processedData[0] || {})`, which only
+  // looked at the first row. After the date filter runs, rows are reordered
+  // as `[...pending, ...disposed]` and some rows (e.g. cases moved back to
+  // "pending" because they were decided after the AS ON DATE) carry extra
+  // fields while others may not carry every field. If a row that happens to
+  // be missing a given key (e.g. 'DATE OF DIS') lands at index 0, that
+  // column disappeared from the whole "All Data" report even though other
+  // rows had data for it. Scanning every row prevents any column from being
+  // dropped, regardless of row order.
+  // ---- FIX 2: exclude internal META_FIELDS from the raw dump (see above) ----
+  const { columns, hasMovedRows } = useMemo(() => {
+    const seen = new Set();
+    const cols = [];
+    let moved = false;
+    processedData.forEach(row => {
+      if (row?.IsStillPendingFromDisposed) moved = true;
+      Object.keys(row || {}).forEach(key => {
+        if (META_FIELDS.includes(key)) return;
+        if (!seen.has(key)) {
+          seen.add(key);
+          cols.push(key);
+        }
+      });
+    });
+    return { columns: cols, hasMovedRows: moved };
+  }, [processedData]);
+
+  // Only add the "FILTER NOTE" column when it's actually relevant, so the
+  // table doesn't grow an extra empty column when no date filter was used.
+  const displayColumns = useMemo(
+    () => (hasMovedRows ? [...columns, 'FILTER NOTE'] : columns),
+    [columns, hasMovedRows]
+  );
+
+  const getCellValue = (row, col) => {
+    if (col === 'FILTER NOTE') {
+      return row.IsStillPendingFromDisposed
+        ? (row.Purpose || 'Moved to Pending — disposed after TO date')
+        : '';
+    }
+    return row[col] != null ? String(row[col]) : '';
+  };
 
   // ---- Real-time filtering ----
   const filteredData = useMemo(() => {
@@ -23,14 +80,14 @@ export default function AllDataTable({ processedData }) {
     if (!hasActiveFilter) return processedData;
 
     return processedData.filter(row =>
-      columns.every(col => {
+      displayColumns.every(col => {
         const term = searchTerms[col]?.trim() || '';
         if (term === '') return true;
-        const cellValue = row[col] != null ? String(row[col]) : '';
+        const cellValue = getCellValue(row, col);
         return cellValue.toLowerCase().includes(term.toLowerCase());
       })
     );
-  }, [processedData, searchTerms, columns]);
+  }, [processedData, searchTerms, displayColumns]);
 
   const isFiltered = filteredData.length !== processedData.length;
 
@@ -42,6 +99,9 @@ export default function AllDataTable({ processedData }) {
   const clearFilters = () => setSearchTerms({});
 
   // ---- Export ----
+  // NOTE: exports still use the raw processedData / filteredData rows
+  // (including the original DATE OF DIS etc.) — only the on-screen META_FIELDS
+  // are hidden from the table UI. Exports are unaffected by this fix.
   const handleExport = async (type) => {
     setBusy(type);
     try {
@@ -50,7 +110,7 @@ export default function AllDataTable({ processedData }) {
       if (type === 'excel') {
         await exportRowsToExcel(dataToExport, `${label}-Data-${timestamp()}.xlsx`, 'Processed Data');
       } else {
-        await exportRowsToPdf(dataToExport, columns, `${label}-Data-${timestamp()}.pdf`);
+        await exportRowsToPdf(dataToExport, displayColumns, `${label}-Data-${timestamp()}.pdf`);
       }
     } catch (err) {
       alert(`Failed to generate ${type === 'excel' ? 'Excel' : 'PDF'}: ${err.message}`);
@@ -105,8 +165,12 @@ export default function AllDataTable({ processedData }) {
               checked={exportMode === 'all'}
               onChange={() => setExportMode('all')}
             />
-            <label className="btn btn-outline-secondary" htmlFor="exportAll">
-              All ({processedData.length})
+            {/* FIX: label clarified — this "All" is the date-filtered dataset
+                (processedData already had the date filter applied upstream in
+                App.jsx), NOT the unfiltered original upload. The old label
+                "All" made it easy to mistake this for "date filter ignored". */}
+            <label className="btn btn-outline-secondary" htmlFor="exportAll" title="All records in the current date-filtered dataset (search box filters not applied)">
+              All Loaded ({processedData.length})
             </label>
           </div>
 
@@ -138,6 +202,11 @@ export default function AllDataTable({ processedData }) {
             Clear Filters
           </Button>
         )}
+        {hasMovedRows && (
+          <span className="text-muted small">
+            ⓘ Rows with a <strong>FILTER NOTE</strong> were disposed after your TO date, so the date filter moved them back to Pending — this is expected.
+          </span>
+        )}
       </div>
 
       {/* ── Scrollable table container ── */}
@@ -157,7 +226,7 @@ export default function AllDataTable({ processedData }) {
 
             {/* ── Row 1: Column headers — sticky at top:0 ── */}
             <tr>
-              {columns.map(col => (
+              {displayColumns.map(col => (
                 <th
                   key={col}
                   style={{
@@ -178,7 +247,7 @@ export default function AllDataTable({ processedData }) {
 
             {/* ── Row 2: Filter inputs — sticky just below header row ── */}
             <tr>
-              {columns.map(col => (
+              {displayColumns.map(col => (
                 <th
                   key={`filter-${col}`}
                   style={{
@@ -206,15 +275,15 @@ export default function AllDataTable({ processedData }) {
           <tbody>
             {filteredData.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="text-center text-muted py-3">
+                <td colSpan={displayColumns.length} className="text-center text-muted py-3">
                   No matching records found.
                 </td>
               </tr>
             ) : (
               filteredData.map((row, idx) => (
-                <tr key={idx}>
-                  {columns.map(col => (
-                    <td key={col}>{row[col] != null ? String(row[col]) : ''}</td>
+                <tr key={idx} className={row.IsStillPendingFromDisposed ? 'table-warning' : undefined}>
+                  {displayColumns.map(col => (
+                    <td key={col}>{getCellValue(row, col)}</td>
                   ))}
                 </tr>
               ))

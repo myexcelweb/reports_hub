@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import cisGuideImage from '../assets/cis-file-download-guide.png';
+import './UploadScreen.css';
 
-// ─── Icon helper (feather-style, matches App.jsx) ───────────────────────────
+// ─── Icon helper ─────────────────────────────────────────────────────────────
 const Icon = ({ d, size = 20, color = 'currentColor', strokeWidth = 2, ...rest }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
         stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" {...rest}>
@@ -20,6 +21,8 @@ const ZapIcon = (p) => <Icon {...p} d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />;
 const ShieldIcon = (p) => <Icon {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />;
 const ImageIcon = (p) => <Icon {...p} d="M3 3h18v18H3zM8.5 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM21 15l-5-5L5 21" />;
 const ChevronDownIcon = (p) => <Icon {...p} d="m6 9 6 6 6-6" />;
+const CalendarIcon = (p) => <Icon {...p} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />;
+const HelpCircleIcon = (p) => <Icon {...p} d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />;
 
 // ─── Helpers for file detection ─────────────────────────────────────────────
 const KNOWN_COLUMNS = [
@@ -115,11 +118,17 @@ export default function UploadScreen({
     progress,
     progressText,
     notify,
-    onProcess,
+    onProcess,                  // original – no date filter
+    onProcessWithDates,         // new – with date filter
     onRemoveFile,
 }) {
     const fileInputRef = useRef(null);
     const [guideOpen, setGuideOpen] = useState(false);
+    const [showExample, setShowExample] = useState(false);
+
+    // ── Date state (store as YYYY-MM-DD strings for <input type="date">) ──
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
 
     // ── Compute warnings ──
     const computeWarnings = (items) => {
@@ -272,6 +281,43 @@ export default function UploadScreen({
         }
     };
 
+    // ── Parse date from YYYY-MM-DD to Date ──
+    const parseDateFromInput = (value) => {
+        if (!value) return null;
+        const parts = value.split('-');
+        if (parts.length !== 3) return null;
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+        const date = new Date(y, m, d);
+        return (date && !isNaN(date.getTime())) ? date : null;
+    };
+
+    // ── Process handler ──
+    const handleProcessClick = () => {
+        if (fileItems.length === 0) {
+            notify('No files to process. Please upload files first.', 'danger');
+            return;
+        }
+
+        const from = parseDateFromInput(fromDate);
+        const to = parseDateFromInput(toDate);
+
+        if (from && to) {
+            if (to < from) {
+                notify('TO date cannot be before FROM date.', 'danger');
+                return;
+            }
+            onProcessWithDates(from, to);
+        } else {
+            if (fromDate || toDate) {
+                notify('Both dates must be filled to apply filter. Skipping date filter.', 'warning');
+            }
+            onProcess();
+        }
+    };
+
     const instructionItems = [
         { label: 'Pending — Dashboard file' },
         { label: 'Pending — Query Builder file' },
@@ -280,595 +326,232 @@ export default function UploadScreen({
     ];
 
     return (
-        <>
-            {/* ─── Embedded CSS ─── */}
-            <style>{`
-        .upload-wrapper {
-          display: flex;
-          flex-direction: column;
-          flex: 1;
-          min-height: calc(100vh - 160px);
-        }
-        .upload-hero {
-          text-align: center;
-          padding: 1rem 0 0.5rem;
-        }
-        .upload-hero-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 12px;
-          background: rgba(0,194,178,.1);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 0.5rem;
-        }
-        .upload-hero h2 {
-          font-size: 1.55rem;
-          font-weight: 800;
-          letter-spacing: -.03em;
-          color: var(--navy, #0F1E35);
-          margin-bottom: 0.2rem;
-        }
-        .upload-hero p {
-          color: var(--muted, #64748B);
-          font-size: .87rem;
-          margin-top: 0.1rem;
-        }
+        <div className="upload-wrapper">
+            <div className="upload-hero">
+                <div className="upload-hero-icon">
+                    <UploadCloudIcon size={22} color="var(--teal, #00C2B2)" />
+                </div>
+                <h2>Upload Court Case Files</h2>
+                <p>Drop your Excel files below — we'll handle deduplication and analytics automatically.</p>
+            </div>
 
-        /* ── Instructions card ── */
-        .upload-instructions {
-          background: var(--white, #FFFFFF);
-          border-radius: 14px;
-          border: 1px solid var(--border, #E2E8F0);
-          padding: 1rem 1.15rem;
-          margin-bottom: 0.85rem;
-          box-shadow: 0 2px 10px rgba(15,30,53,.05);
-          flex-shrink: 0;
-        }
-        .upload-instructions-head {
-          display: flex;
-          align-items: center;
-          gap: .5rem;
-          margin-bottom: 0.6rem;
-        }
-        .upload-instructions-head .head-icon {
-          width: 26px;
-          height: 26px;
-          border-radius: 7px;
-          background: rgba(0,194,178,.12);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .upload-instructions h5 {
-          font-weight: 700;
-          color: var(--navy, #0F1E35);
-          font-size: 0.88rem;
-          letter-spacing: -.01em;
-        }
-        .file-type-list {
-          list-style: none;
-          padding: 0;
-          margin: 0 0 0.7rem 0;
-        }
-        .file-type-list li {
-          display: flex;
-          align-items: baseline;
-          gap: 0.4rem;
-          font-size: .8rem;
-          color: var(--text, #1A202C);
-          padding: 0.3rem 0;
-          border-bottom: 1px solid var(--border, #E2E8F0);
-        }
-        .file-type-list li:last-child {
-          border-bottom: none;
-        }
-        .file-type-list .item-check {
-          color: var(--teal, #00C2B2);
-          flex-shrink: 0;
-        }
-        .file-type-list .item-hint {
-          color: var(--muted, #64748B);
-          font-size: .72rem;
-        }
-        .instructions-points {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-        .instructions-points li {
-          display: flex;
-          align-items: flex-start;
-          gap: .4rem;
-          font-size: .74rem;
-          color: var(--muted, #64748B);
-          line-height: 1.45;
-          margin-top: 0.35rem;
-        }
-        .instructions-points li svg {
-          flex-shrink: 0;
-          margin-top: 2px;
-        }
-        .important-label {
-          font-size: .72rem;
-          font-weight: 700;
-          letter-spacing: .03em;
-          text-transform: uppercase;
-          color: var(--navy, #0F1E35);
-          margin: 0.75rem 0 0.35rem;
-        }
-
-        /* ── Download guide toggle ── */
-        .guide-toggle {
-          display: flex;
-          align-items: center;
-          gap: .4rem;
-          width: 100%;
-          margin-top: 0.8rem;
-          padding: 0.55rem 0.7rem;
-          background: var(--slate, #F0F4F8);
-          border: 1px solid var(--border, #E2E8F0);
-          border-radius: 9px;
-          cursor: pointer;
-          font-size: .78rem;
-          font-weight: 600;
-          color: var(--teal-d, #009D90);
-          transition: background .15s, border-color .15s;
-        }
-        .guide-toggle:hover {
-          background: rgba(0,194,178,.08);
-          border-color: var(--teal, #00C2B2);
-        }
-        .guide-toggle span {
-          flex: 1;
-          text-align: left;
-        }
-        .guide-toggle .chevron {
-          transition: transform .2s;
-          flex-shrink: 0;
-        }
-        .guide-toggle .chevron.open {
-          transform: rotate(180deg);
-        }
-        .guide-image-wrap {
-          margin-top: 0.6rem;
-          border: 1px solid var(--border, #E2E8F0);
-          border-radius: 10px;
-          overflow: hidden;
-          background: var(--slate, #F0F4F8);
-          max-width: 40%;
-          margin-left: auto;
-          margin-right: auto;
-        }
-        .guide-image {
-          display: block;
-          width: 100%;
-          height: auto;
-        }
-        @media (max-width: 700px) {
-          .guide-image-wrap {
-            max-width: 85%;
-          }
-        }
-
-        /* ── Dropzone ── */
-        .dropzone {
-          border: 2px dashed var(--border, #E2E8F0);
-          border-radius: 14px;
-          padding: 1.6rem 1.5rem;
-          text-align: center;
-          cursor: pointer;
-          transition: all .22s;
-          background: var(--white, #FFFFFF);
-          flex-shrink: 0;
-        }
-        .dropzone:hover,
-        .dropzone.dragging {
-          border-color: var(--teal, #00C2B2);
-          background: rgba(0,194,178,.05);
-          transform: translateY(-1px);
-          box-shadow: 0 6px 22px rgba(0,194,178,.12);
-        }
-        .dropzone-icon {
-          width: 52px;
-          height: 52px;
-          background: rgba(0,194,178,.1);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 0.6rem;
-          color: var(--teal, #00C2B2);
-        }
-        .dropzone h3 {
-          font-size: 1.02rem;
-          font-weight: 700;
-          color: var(--text, #1A202C);
-          margin-bottom: 0.15rem;
-          letter-spacing: -.01em;
-        }
-        .dropzone p {
-          font-size: .8rem;
-          color: var(--muted, #64748B);
-          margin-top: 0.1rem;
-        }
-
-        /* ── File chips ── */
-        .file-chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-          margin-top: 0.65rem;
-          flex-shrink: 0;
-          max-height: 96px;
-          overflow-y: auto;
-          padding: 2px;
-        }
-        .file-chip {
-          display: flex;
-          align-items: center;
-          gap: .45rem;
-          background: var(--white, #FFFFFF);
-          border: 1px solid var(--border, #E2E8F0);
-          border-radius: 99px;
-          padding: .35rem .5rem .35rem .5rem;
-          font-size: .76rem;
-          font-weight: 500;
-          color: var(--text, #1A202C);
-          box-shadow: 0 1px 4px rgba(0,0,0,.05);
-          transition: box-shadow .15s, border-color .15s;
-        }
-        .file-chip:hover {
-          border-color: var(--teal, #00C2B2);
-          box-shadow: 0 2px 10px rgba(0,194,178,.12);
-        }
-        .file-chip .chip-icon-wrap {
-          width: 22px;
-          height: 22px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          background: rgba(16,185,129,.12);
-          color: var(--green, #10B981);
-        }
-        .file-chip.chip-unknown-file .chip-icon-wrap {
-          background: rgba(245,166,35,.14);
-          color: var(--amber, #F5A623);
-        }
-        .file-chip .chip-name {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 130px;
-        }
-        .file-chip .chip-size {
-          color: var(--muted, #64748B);
-          font-size: .68rem;
-          flex-shrink: 0;
-        }
-        .file-chip .chip-unknown {
-          display: flex;
-          align-items: center;
-          gap: 3px;
-          font-size: 0.66rem;
-          font-weight: 600;
-          color: var(--amber, #F5A623);
-          margin-left: 0.1rem;
-          flex-shrink: 0;
-        }
-        .chip-remove {
-          background: none;
-          border: none;
-          cursor: pointer;
-          color: var(--muted, #64748B);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: color .15s, background .15s;
-          padding: 3px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-        .chip-remove:hover {
-          color: var(--white, #fff);
-          background: var(--red, #EF4444);
-        }
-
-        /* ── Warning / info cards ── */
-        .warning-box {
-          display: flex;
-          flex-direction: column;
-          gap: 0.55rem;
-          margin-top: 0.85rem;
-          flex-shrink: 0;
-        }
-        .warning-card {
-          border-radius: 10px;
-          padding: 0.7rem 0.9rem;
-          display: flex;
-          align-items: flex-start;
-          gap: 0.6rem;
-          box-shadow: 0 1px 6px rgba(0,0,0,.04);
-        }
-        .warning-card .card-icon {
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .warning-card .card-body {
-          flex: 1;
-          min-width: 0;
-        }
-        .warning-card .card-title {
-          font-weight: 700;
-          font-size: .82rem;
-          margin-bottom: 0.1rem;
-          letter-spacing: -.005em;
-        }
-        .warning-card .card-message {
-          font-size: .78rem;
-          line-height: 1.4;
-          font-weight: 400;
-        }
-        .warning-card.card-warning {
-          background: #FFFBEB;
-          border: 1px solid #FDE68A;
-        }
-        .warning-card.card-warning .card-icon {
-          background: rgba(245,166,35,.18);
-          color: #B45309;
-        }
-        .warning-card.card-warning .card-title { color: #92400E; }
-        .warning-card.card-warning .card-message { color: #92400E; }
-
-        .warning-card.card-info {
-          background: #ECFEFF;
-          border: 1px solid #A5F3FC;
-        }
-        .warning-card.card-info .card-icon {
-          background: rgba(6,182,212,.16);
-          color: #0E7490;
-        }
-        .warning-card.card-info .card-message {
-          color: #155E75;
-        }
-
-        /* ── Process button ── */
-        .process-wrapper {
-          margin-top: auto;
-          padding-top: 0.75rem;
-          position: sticky;
-          bottom: 0;
-          background: var(--slate, #F0F4F8);
-          z-index: 5;
-          padding-bottom: 0.25rem;
-        }
-        .btn-primary {
-          background: linear-gradient(135deg, var(--teal, #00C2B2), var(--teal-d, #009D90));
-          color: var(--navy, #0F1E35);
-          border: none;
-          border-radius: 12px;
-          padding: .75rem 1.5rem;
-          font-size: .92rem;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all .18s;
-          display: flex;
-          align-items: center;
-          gap: .55rem;
-          letter-spacing: -.01em;
-          width: 100%;
-          justify-content: center;
-          box-shadow: 0 4px 14px rgba(0,194,178,.22);
-        }
-        .btn-primary:hover:not(:disabled) {
-          transform: translateY(-1.5px);
-          box-shadow: 0 8px 22px rgba(0,194,178,.32);
-        }
-        .btn-primary:active:not(:disabled) {
-          transform: translateY(0);
-        }
-        .btn-primary:disabled {
-          opacity: .45;
-          cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
-        }
-        .progress-wrap {
-          background: #E2E8F0;
-          border-radius: 99px;
-          height: 6px;
-          overflow: hidden;
-        }
-        .progress-bar {
-          height: 100%;
-          background: linear-gradient(90deg, var(--teal, #00C2B2), var(--amber, #F5A623));
-          border-radius: 99px;
-          transition: width .35s ease;
-          animation: shimmer 1.5s infinite;
-        }
-        @keyframes shimmer {
-          0%, 100% { opacity: 1; }
-          50% { opacity: .75; }
-        }
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .mt-sm { margin-top: .5rem; }
-        .flex { display: flex; }
-        .items-center { align-items: center; }
-      `}</style>
-
-            {/* ─── JSX ─── */}
-            <div className="upload-wrapper">
-                <div className="upload-hero">
-                    <div className="upload-hero-icon">
-                        <UploadCloudIcon size={22} color="var(--teal, #00C2B2)" />
+            <div className="upload-instructions">
+                <div className="upload-instructions-head">
+                    <div className="head-icon">
+                        <FileTextIcon size={14} color="var(--teal, #00C2B2)" />
                     </div>
-                    <h2>Upload Court Case Files</h2>
-                    <p>Drop your Excel files below — we'll handle deduplication and analytics automatically.</p>
+                    <h5>Upload Instructions</h5>
                 </div>
 
-                <div className="upload-instructions">
-                    <div className="upload-instructions-head">
-                        <div className="head-icon">
-                            <FileTextIcon size={14} color="var(--teal, #00C2B2)" />
-                        </div>
-                        <h5>Upload Instructions</h5>
-                    </div>
-
-                    <ul className="file-type-list">
-                        {instructionItems.map((it, i) => (
-                            <li key={i}>
-                                <CheckCircleIcon size={13} className="item-check" />
-                                <span>{it.label}</span>
-                                {it.hint && <span className="item-hint">({it.hint})</span>}
-                            </li>
-                        ))}
-                    </ul>
-
-                    <div className="important-label">Important:</div>
-                    <ul className="instructions-points">
-                        <li>
-                            <InfoIcon size={13} />
-                            <span>Upload only original files downloaded from CIS Software.</span>
+                <ul className="file-type-list">
+                    {instructionItems.map((it, i) => (
+                        <li key={i}>
+                            <CheckCircleIcon size={13} className="item-check" />
+                            <span>{it.label}</span>
+                            {it.hint && <span className="item-hint">({it.hint})</span>}
                         </li>
-                        <li>
-                            <FileTextIcon size={13} />
-                            <span>Only Excel (.xlsx or .xls) files are accepted.</span>
-                        </li>
-                        <li>
-                            <ShieldIcon size={13} />
-                            <span>Do not edit or reformat the files before uploading, as this may cause incorrect processing or classification.</span>
-                        </li>
-                    </ul>
+                    ))}
+                </ul>
 
-                    <button
-                        type="button"
-                        className="guide-toggle"
-                        onClick={() => setGuideOpen(o => !o)}
-                        aria-expanded={guideOpen}
-                    >
-                        <ImageIcon size={14} />
-                        <span>{guideOpen ? 'Hide' : 'View'} CIS Software file download guide</span>
-                        <ChevronDownIcon size={14} className={`chevron ${guideOpen ? 'open' : ''}`} />
-                    </button>
+                <div className="important-label">Important:</div>
+                <ul className="instructions-points">
+                    <li>
+                        <InfoIcon size={13} />
+                        <span>Upload only original files downloaded from CIS Software.</span>
+                    </li>
+                    <li>
+                        <FileTextIcon size={13} />
+                        <span>Only Excel (.xlsx or .xls) files are accepted.</span>
+                    </li>
+                    <li>
+                        <ShieldIcon size={13} />
+                        <span>Do not edit or reformat the files before uploading, as this may cause incorrect processing or classification.</span>
+                    </li>
+                </ul>
 
-                    {guideOpen && (
-                        <div className="guide-image-wrap">
-                            <img
-                                src={cisGuideImage}
-                                alt="Guide showing where to download Pending and Disposed Dashboard and Query Builder reports from CIS Software"
-                                className="guide-image"
-                            />
-                        </div>
-                    )}
-                </div>
-
-                <div
-                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={e => { e.preventDefault(); setIsDragging(false); handleFileSelection(e.dataTransfer.files); }}
-                    onClick={() => fileInputRef.current?.click()}
+                <button
+                    type="button"
+                    className="guide-toggle"
+                    onClick={() => setGuideOpen(o => !o)}
+                    aria-expanded={guideOpen}
                 >
-                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple
-                        className="d-none" style={{ display: 'none' }}
-                        onChange={e => e.target.files && handleFileSelection(e.target.files)} />
+                    <ImageIcon size={14} />
+                    <span>{guideOpen ? 'Hide' : 'View'} CIS Software file download guide</span>
+                    <ChevronDownIcon size={14} className={`chevron ${guideOpen ? 'open' : ''}`} />
+                </button>
 
-                    <div className="dropzone-icon">
-                        <UploadCloudIcon size={24} />
-                    </div>
-                    <h3>Drag & drop Excel files here</h3>
-                    <p>or click to browse · .xlsx and .xls supported</p>
-                </div>
-
-                {fileItems.length > 0 && (
-                    <div className="file-chips">
-                        {fileItems.map((item, i) => (
-                            <div key={i} className={`file-chip ${!item.type ? 'chip-unknown-file' : ''}`}>
-                                <span className="chip-icon-wrap">
-                                    <FileTextIcon size={12} />
-                                </span>
-                                <span className="chip-name" title={item.name}>{item.name}</span>
-                                <span className="chip-size">{(item.size / 1024).toFixed(0)} KB</span>
-                                {!item.type && (
-                                    <span className="chip-unknown">
-                                        <AlertTriangleIcon size={11} /> unknown
-                                    </span>
-                                )}
-                                <button className="chip-remove" onClick={() => onRemoveFile(i)} title="Remove file">
-                                    <XIcon size={13} />
-                                </button>
-                            </div>
-                        ))}
+                {guideOpen && (
+                    <div className="guide-image-wrap">
+                        <img
+                            src={cisGuideImage}
+                            alt="Guide showing where to download Pending and Disposed Dashboard and Query Builder reports from CIS Software"
+                            className="guide-image"
+                        />
                     </div>
                 )}
+            </div>
 
-                {warnings.length > 0 && (
-                    <div className="warning-box">
-                        {warnings.map((w, idx) => {
-                            if (w.type === 'info') {
-                                return (
-                                    <div key={idx} className="warning-card card-info">
-                                        <span className="card-icon"><InfoIcon size={15} /></span>
-                                        <div className="card-body">
-                                            <div className="card-message">{w.message}</div>
-                                        </div>
-                                    </div>
-                                );
-                            }
+            <div
+                className={`dropzone ${isDragging ? 'dragging' : ''}`}
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={e => { e.preventDefault(); setIsDragging(false); handleFileSelection(e.dataTransfer.files); }}
+                onClick={() => fileInputRef.current?.click()}
+            >
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple
+                    className="d-none" style={{ display: 'none' }}
+                    onChange={e => e.target.files && handleFileSelection(e.target.files)} />
+
+                <div className="dropzone-icon">
+                    <UploadCloudIcon size={24} />
+                </div>
+                <h3>Drag & drop Excel files here</h3>
+                <p>or click to browse · .xlsx and .xls supported</p>
+            </div>
+
+            {fileItems.length > 0 && (
+                <div className="file-chips">
+                    {fileItems.map((item, i) => (
+                        <div key={i} className={`file-chip ${!item.type ? 'chip-unknown-file' : ''}`}>
+                            <span className="chip-icon-wrap">
+                                <FileTextIcon size={12} />
+                            </span>
+                            <span className="chip-name" title={item.name}>{item.name}</span>
+                            <span className="chip-size">{(item.size / 1024).toFixed(0)} KB</span>
+                            {!item.type && (
+                                <span className="chip-unknown">
+                                    <AlertTriangleIcon size={11} /> unknown
+                                </span>
+                            )}
+                            <button className="chip-remove" onClick={() => onRemoveFile(i)} title="Remove file">
+                                <XIcon size={13} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {warnings.length > 0 && (
+                <div className="warning-box">
+                    {warnings.map((w, idx) => {
+                        if (w.type === 'info') {
                             return (
-                                <div key={idx} className="warning-card card-warning">
-                                    <span className="card-icon"><AlertTriangleIcon size={15} /></span>
+                                <div key={idx} className="warning-card card-info">
+                                    <span className="card-icon"><InfoIcon size={15} /></span>
                                     <div className="card-body">
-                                        {w.title && <div className="card-title">{w.title}</div>}
                                         <div className="card-message">{w.message}</div>
                                     </div>
                                 </div>
                             );
-                        })}
+                        }
+                        return (
+                            <div key={idx} className="warning-card card-warning">
+                                <span className="card-icon"><AlertTriangleIcon size={15} /></span>
+                                <div className="card-body">
+                                    {w.title && <div className="card-title">{w.title}</div>}
+                                    <div className="card-message">{w.message}</div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ─── Process wrapper with date inputs ─── */}
+            <div className="process-wrapper">
+                <div className="date-input-row">
+                    <label>
+                        <CalendarIcon size={14} />
+                        FROM
+                        <input
+                            type="date"
+                            value={fromDate}
+                            onChange={(e) => setFromDate(e.target.value)}
+                            disabled={isProcessing}
+                        />
+                    </label>
+                    <label>
+                        <CalendarIcon size={14} />
+                        TO
+                        <input
+                            type="date"
+                            value={toDate}
+                            onChange={(e) => setToDate(e.target.value)}
+                            disabled={isProcessing}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        className="help-btn"
+                        onClick={() => setShowExample(!showExample)}
+                        title="Show date filter example"
+                    >
+                        <HelpCircleIcon size={16} color="#00C2B2" />   {/* ← teal */}
+                    </button>
+                    <span className="date-hint">
+                        <span className="optional">Optional</span> – leave blank to skip filter
+                    </span>
+                </div>
+
+                {showExample && (
+                    <div className="example-popup">
+                        <h6>📘 Date Filter Example</h6>
+                        <div className="example-table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Mode</th>
+                                        <th>Uploaded File</th>
+                                        <th>Output</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Without Filter</strong></td>
+                                        <td>Disposed: 01-04-2026 to 03-07-2026<br />Pending: As on 03-07-2026</td>
+                                        <td>Disposed: 01-04-2026 to 03-07-2026 (No change)<br />Pending: As on 03-07-2026 (No change)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>With Filter</strong><br />(FROM: 01-04-2026<br />TO: 30-06-2026)</td>
+                                        <td>Disposed: 01-04-2026 to 03-07-2026<br />Pending: As on 03-07-2026</td>
+                                        <td>Disposed: 01-04-2026 to <span className="highlight">30-06-2026</span><br />Pending: As on <span className="highlight">30-06-2026</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p className="example-note">
+                            <span className="highlight">TO</span> becomes the new <strong>AS‑ON</strong> date; cases disposed after TO are moved to pending.
+                        </p>
+                        <button className="close-example" onClick={() => setShowExample(false)}>
+                            ×   {/* ← red and highlighted */}
+                        </button>
                     </div>
                 )}
 
-                <div className="process-wrapper">
-                    <button
-                        className="btn-primary"
-                        disabled={isProcessing || fileItems.length === 0}
-                        onClick={onProcess}
-                    >
-                        {isProcessing ? (
-                            <><ZapIcon size={16} className="spin" />Processing…</>
-                        ) : (
-                            <><ZapIcon size={16} />Process {fileItems.length > 0 ? `${fileItems.length} File${fileItems.length > 1 ? 's' : ''}` : 'Files'}</>
-                        )}
-                    </button>
-
-                    {isProcessing && (
-                        <div className="mt-sm">
-                            <div className="flex items-center" style={{ justifyContent: 'space-between', marginBottom: '.25rem', fontSize: '.75rem', color: 'var(--muted)' }}>
-                                <span>{progressText}</span>
-                                <strong style={{ color: 'var(--teal)' }}>{progress}%</strong>
-                            </div>
-                            <div className="progress-wrap">
-                                <div className="progress-bar" style={{ width: `${progress}%` }} />
-                            </div>
-                        </div>
+                <button
+                    className="btn-primary"
+                    disabled={isProcessing || fileItems.length === 0}
+                    onClick={handleProcessClick}
+                >
+                    {isProcessing ? (
+                        <><ZapIcon size={16} className="spin" />Processing…</>
+                    ) : (
+                        <><ZapIcon size={16} />Process {fileItems.length > 0 ? `${fileItems.length} File${fileItems.length > 1 ? 's' : ''}` : 'Files'}</>
                     )}
-                </div>
+                </button>
+
+                {isProcessing && (
+                    <div className="mt-sm">
+                        <div className="flex items-center" style={{ justifyContent: 'space-between', marginBottom: '.25rem', fontSize: '.75rem', color: 'var(--muted)' }}>
+                            <span>{progressText}</span>
+                            <strong style={{ color: 'var(--teal)' }}>{progress}%</strong>
+                        </div>
+                        <div className="progress-wrap">
+                            <div className="progress-bar" style={{ width: `${progress}%` }} />
+                        </div>
+                    </div>
+                )}
             </div>
-        </>
+        </div>
     );
 }

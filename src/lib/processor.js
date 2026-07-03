@@ -408,6 +408,15 @@ export class CourtCaseProcessor {
 		}
 		try {
 			let processed = this.mapColumnNames(data);
+
+			// ─── ENSURE 'DATE OF DIS' EXISTS ON EVERY ROW ───
+			processed = processed.map(row => {
+				if (!('DATE OF DIS' in row)) {
+					row['DATE OF DIS'] = null;
+				}
+				return row;
+			});
+
 			processed = this.addStatusColumn(processed);
 			processed = this.duplicateRemover.removeDuplicates(processed, 'UID');
 			const dupStats = this.duplicateRemover.getStats();

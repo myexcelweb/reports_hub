@@ -126,8 +126,6 @@ const css = `
     flex-direction: column;
   }
 
-  /* ── Upload Tab styles now live in src/components/UploadScreen.jsx ── */
-
   .btn-primary {
     background: var(--teal); color: var(--navy);
     border: none; border-radius: 10px;
@@ -330,7 +328,8 @@ export default function App() {
     isProcessing, progress, progressText,
     processedData, finalSummary,
     notifications, setNotifications,
-    processFiles,
+    processFiles,               // original – no date filter
+    processFilesWithDates,      // with date filter
     downloadAllReports,
   } = useCourtCaseProcessor();
 
@@ -352,6 +351,7 @@ export default function App() {
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 4500);
   };
 
+  // ── Process without date filter ──
   const handleProcess = () => {
     if (fileItems.length === 0) return;
     const files = fileItems.map(item => item.file);
@@ -362,7 +362,21 @@ export default function App() {
         )
       );
     };
-    processFiles(files, (fileName, status) => updateStatus(fileName, status));
+    processFiles(files, updateStatus);
+  };
+
+  // ── Process with FROM/TO dates ──
+  const handleProcessWithDates = (fromDate, toDate) => {
+    if (fileItems.length === 0) return;
+    const files = fileItems.map(item => item.file);
+    const updateStatus = (fileName, status) => {
+      setFileItems(prev =>
+        prev.map(item =>
+          item.name === fileName ? { ...item, status } : item
+        )
+      );
+    };
+    processFilesWithDates(files, fromDate, toDate, updateStatus);
   };
 
   const removeFile = (i) => {
@@ -450,7 +464,8 @@ export default function App() {
               progress={progress}
               progressText={progressText}
               notify={notify}
-              onProcess={handleProcess}
+              onProcess={handleProcess}                     // original
+              onProcessWithDates={handleProcessWithDates}   // with filter
               onRemoveFile={removeFile}
             />
           )}
@@ -483,7 +498,10 @@ export default function App() {
                   </div>
                   <div className="stat-card c-teal">
                     <div className="stat-num">
-                      {((finalSummary.uniqueRecords / finalSummary.grandTotal) * 100*2).toFixed(1)}%
+                      {/* FIX: this used to multiply by 100 * 2, which doubled the
+                          percentage (e.g. a real 92% would display as 184%,
+                          sometimes over 100%). It's just unique/total * 100. */}
+                      {((finalSummary.uniqueRecords / finalSummary.grandTotal) * 100).toFixed(1)}%
                     </div>
                     <div className="stat-label">Success Rate</div>
                   </div>
@@ -552,10 +570,10 @@ export default function App() {
               <div className="mt-xl">
                 <button className="btn-primary w-full"
                   disabled={isProcessing || fileItems.length === 0}
-                  onClick={handleProcess}
+                  onClick={() => setActiveTab('upload')}
                   style={{ justifyContent: 'center' }}
                 >
-                  {isProcessing ? 'Re-processing…' : 'Re-Process All Files'}
+                  {isProcessing ? 'Re-processing…' : 'Go to Upload to Re-Process'}
                 </button>
               </div>
             </>
