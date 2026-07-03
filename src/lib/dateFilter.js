@@ -32,7 +32,12 @@ export function applyDateFilter(processedData, fromDate, toDate) {
             STATUS: 'PENDING',
             IsStillPendingFromDisposed: true,
             NextDate: r['DATE OF DIS'],
-            Purpose: 'Pending as on date (decision after AS ON DATE)'
+            Purpose: 'Pending as on date (decision after AS ON DATE)',
+            // This row is now treated as PENDING, so it shouldn't still carry a
+            // disposal date — that field only made sense while it was DISPOSE.
+            // The original date is preserved in NextDate above (hidden from the
+            // UI via META_FIELDS) in case anything needs it for reference later.
+            'DATE OF DIS': null
         }));
 
     // 3. Disposed that are decided ON or BEFORE asOnDate, and within FROM‑TO range
