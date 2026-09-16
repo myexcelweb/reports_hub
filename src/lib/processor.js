@@ -324,7 +324,7 @@ export class CourtCaseProcessor {
 		const hasIpcSpecialCode =
 			actStr.includes('INDIAN PENAL CODE') &&
 			ipcCodes.some((code) => new RegExp(`(^|[^0-9])${code}([^0-9]|$)`).test(actStr));
-		const bnsCodes = ['84'];
+		const bnsCodes = ['84', '85'];
 		const hasBnsCode =
 			actStr.includes('THE BHARATIYA NYAYA SANHITA') &&
 			bnsCodes.some((code) => new RegExp(`\\b${code}(\\([0-9]\\))?`).test(actStr));
