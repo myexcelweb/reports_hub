@@ -294,7 +294,8 @@ export class CourtCaseProcessor {
 	/**
 	 * UPDATED: Check for IPC SPECIAL.
 	 * Returns 'IPC SPECIAL' ONLY IF:
-	 *   (a) ACT contains specific IPC/BNS sections (old logic), AND
+	 *   (a) ACT contains specific IPC sections (409, 467, 465, 468, 471), OR
+	 *       specific BNS sections/subsections (316(5), 336(2), 336(3), 338, 340(2)), AND
 	 *   (b) CAT1 is exactly 'CC'.
 	 * @param {string} act - The ACT column value.
 	 * @param {string} cat1 - The CAT1 value (extracted from UID).
@@ -308,10 +309,10 @@ export class CourtCaseProcessor {
 		const hasIpcSpecialCode =
 			actStr.includes('INDIAN PENAL CODE') &&
 			ipcCodes.some((code) => new RegExp(`(^|[^0-9])${code}([^0-9]|$)`).test(actStr));
-		const bnsCodes = ['316', '336', '338', '340'];
+		const bnsCodes = ['316\\(5\\)', '336\\(2\\)', '336\\(3\\)', '338', '340\\(2\\)'];
 		const hasBnsCode =
 			actStr.includes('THE BHARATIYA NYAYA SANHITA') &&
-			bnsCodes.some((code) => new RegExp(`\\b${code}(\\([0-9]\\))?`).test(actStr));
+			bnsCodes.some((code) => new RegExp(`\\b${code}\\b`).test(actStr));
 		return (hasIpcSpecialCode || hasBnsCode) ? 'IPC SPECIAL' : '';
 	}
 
