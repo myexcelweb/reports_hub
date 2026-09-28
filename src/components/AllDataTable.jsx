@@ -2,7 +2,9 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import { FileEarmarkExcel, FileEarmarkPdf, ArrowsFullscreen, FullscreenExit } from 'react-bootstrap-icons';
-import { exportRowsToExcel, exportRowsToPdf, timestamp } from '../lib/exportFile';
+import { timestamp } from '../lib/exportFile';
+import { tableFromRows, exportTablesToExcel, exportTablesToPdf } from '../lib/reportExport';
+import { SOURCE_FILE_KEY } from '../lib/caseFilters';
 
 // ---- FIX: internal bookkeeping fields written by lib/dateFilter.js ----
 // When a case was DISPOSED after the "TO / AS ON" date, applyDateFilter()
@@ -19,16 +21,27 @@ import { exportRowsToExcel, exportRowsToPdf, timestamp } from '../lib/exportFile
 // that row looks the way it does.
 const META_FIELDS = ['IsStillPendingFromDisposed', 'NextDate', 'Purpose'];
 
+// Helper columns the app calculates. They stay in Excel, but are left out of
+// the PDF so the printed page has room for the case details.
+const PDF_HIDDEN = ['SR NO', 'AGE_D', 'AGE_Y', 'AGE_M', 'AGE_VALID', 'AGE CAT1', 'AGE CAT2', 'AGE CAT3',
+  'CAT1', 'IPC SPECIAL', 'CASE AGAINST WOMEN', 'CRMA SPECIAL'];
+
+// Empty check lives in this wrapper so the component below always calls its
+// hooks in the same order (hooks after an early return crash React when the
+// data goes from empty to non-empty).
 export default function AllDataTable({ processedData }) {
+  if (!processedData || processedData.length === 0) {
+    return <p className="text-muted text-center">No processed data to display.</p>;
+  }
+  return <AllDataTableView processedData={processedData} />;
+}
+
+function AllDataTableView({ processedData }) {
   const [busy, setBusy] = useState(null); // 'excel' | 'pdf' | null
   const [searchTerms, setSearchTerms] = useState({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [exportMode, setExportMode] = useState('filtered'); // 'filtered' | 'all'
   const containerRef = useRef(null);
-
-  if (!processedData || processedData.length === 0) {
-    return <p className="text-muted text-center">No processed data to display.</p>;
-  }
 
   // ---- FIX: build column list from the UNION of keys across ALL rows ----
   // Previously this used `Object.keys(processedData[0] || {})`, which only
@@ -55,6 +68,9 @@ export default function AllDataTable({ processedData }) {
         }
       });
     });
+    // SOURCE FILE NAME always goes first so you can see where each row came from.
+    const srcIdx = cols.indexOf(SOURCE_FILE_KEY);
+    if (srcIdx > 0) cols.unshift(cols.splice(srcIdx, 1)[0]);
     return { columns: cols, hasMovedRows: moved };
   }, [processedData]);
 
@@ -99,19 +115,27 @@ export default function AllDataTable({ processedData }) {
   const clearFilters = () => setSearchTerms({});
 
   // ---- Export ----
-  // NOTE: exports still use the raw processedData / filteredData rows
-  // (including the original DATE OF DIS etc.) — only the on-screen META_FIELDS
-  // are hidden from the table UI. Exports are unaffected by this fix.
+  // Exports exactly the columns shown on screen (SOURCE FILE NAME first,
+  // FILTER NOTE filled in, internal debug fields left out). Numbers stay
+  // numbers in Excel; the header row gets an Excel filter.
   const handleExport = async (type) => {
     setBusy(type);
     try {
-      const dataToExport = exportMode === 'filtered' ? filteredData : processedData;
+      const rows = exportMode === 'filtered' ? filteredData : processedData;
       const label = exportMode === 'filtered' && isFiltered ? 'Filtered' : 'All';
-      if (type === 'excel') {
-        await exportRowsToExcel(dataToExport, `${label}-Data-${timestamp()}.xlsx`, 'Processed Data');
-      } else {
-        await exportRowsToPdf(dataToExport, displayColumns, `${label}-Data-${timestamp()}.pdf`);
-      }
+      const columns = type === 'pdf' ? displayColumns.filter(c => !PDF_HIDDEN.includes(c)) : displayColumns;
+      const table = tableFromRows(
+        columns,
+        rows,
+        (row, col) => (col === 'FILTER NOTE' ? getCellValue(row, col) : row[col]),
+        `${label} Data — ${rows.length} records`
+      );
+      const meta = {
+        reportTitle: 'All Data — Processed Court Cases',
+        fileName: `${label}-Data-${timestamp()}.${type === 'excel' ? 'xlsx' : 'pdf'}`,
+      };
+      if (type === 'excel') await exportTablesToExcel([{ ...table, sheetName: 'All Data' }], meta);
+      else await exportTablesToPdf([table], meta);
     } catch (err) {
       alert(`Failed to generate ${type === 'excel' ? 'Excel' : 'PDF'}: ${err.message}`);
     } finally {
@@ -142,7 +166,7 @@ export default function AllDataTable({ processedData }) {
     <div ref={containerRef} style={{ background: '#fff', padding: '1px 0' }}>
 
       {/* ── Toolbar ── */}
-      <div className="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+      <div className="alldata-toolbar">
 
         {/* Left: export-mode toggle + download buttons */}
         <div className="d-flex align-items-center gap-2 flex-wrap">
@@ -192,7 +216,7 @@ export default function AllDataTable({ processedData }) {
       </div>
 
       {/* ── Record count + clear (shown ABOVE the table) ── */}
-      <div className="d-flex align-items-center gap-3 mb-1">
+      <div className="d-flex align-items-center gap-3 mb-2 flex-wrap">
         <p className="text-muted small mb-0">
           Showing <strong>{filteredData.length}</strong> of <strong>{processedData.length}</strong> records
           {isFiltered && <span className="text-warning fw-semibold"> (filtered)</span>}
@@ -220,6 +244,7 @@ export default function AllDataTable({ processedData }) {
         }}
       >
         <Table striped bordered hover size="sm" className="mb-0"
+          data-export-title={`All Data — ${filteredData.length} records`} data-export-sheet="All Data" data-export-autofilter
           style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
 
           <thead style={{ zIndex: 2 }}>
@@ -246,7 +271,7 @@ export default function AllDataTable({ processedData }) {
             </tr>
 
             {/* ── Row 2: Filter inputs — sticky just below header row ── */}
-            <tr>
+            <tr data-export-skip>
               {displayColumns.map(col => (
                 <th
                   key={`filter-${col}`}

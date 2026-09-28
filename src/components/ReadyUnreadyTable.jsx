@@ -1,13 +1,11 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import { FileEarmarkExcel, FileEarmarkPdf } from 'react-bootstrap-icons';
 import { extractYear, normalizeRU, filterCases } from '../lib/caseFilters';
 import { useDrillDown } from '../hooks/useDrillDown';
 import CaseListModal from './common/CaseListModal';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { useReportExport } from '../hooks/useReportExport';
 
 // Helper: get last N years from a sorted array
 const getLastNYears = (years, n) => {
@@ -17,7 +15,7 @@ const getLastNYears = (years, n) => {
 
 export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideLabel = 'Civil', emptyLabel }) {
   const { modal, open, close } = useDrillDown();
-  const [busy, setBusy] = useState(null);
+  const { ref: exportRef, busy, exportExcel, exportPdf } = useReportExport({ reportTitle: `B1B2-${sideLabel} — Ready / Unready (Pending)`, fileBase: `${sideLabel}-ReadyUnready` });
 
   // ---- Compute both tables ----
   const tables = useMemo(() => {
@@ -27,7 +25,7 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
     const fullPivot = {};
     const allYearsSet = new Set();
     filtered.forEach(row => {
-      const year = extractYear(row.UID);
+      const year = extractYear(row['CASE NO'], row.CNR);
       if (!year) return;
       allYearsSet.add(year);
       const ru = normalizeRU(row.RU);
@@ -133,10 +131,10 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
       if (cat2 && row.CAT2 !== cat2) return false;
       if (status && normalizeRU(row.RU) !== status) return false;
       if (year === 'pre') {
-        const yr = extractYear(row.UID);
+        const yr = extractYear(row['CASE NO'], row.CNR);
         return yr && Number(yr) < Number(preYear);
       } else if (year) {
-        return extractYear(row.UID) === year;
+        return extractYear(row['CASE NO'], row.CNR) === year;
       }
       return true;
     });
@@ -144,93 +142,9 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
     open(title, matches);   // <-- pass full rows, not UIDs
   };
 
-  // ---- Export helpers (order: Last5 first, then All) ----
-  const buildLast5TableData = () => {
-    const headers = ['Case Category', `pre-${preYear} (R)`, `pre-${preYear} (U)`, ...last5Years.flatMap(y => [`${y} (R)`, `${y} (U)`]), 'TOTAL (R)', 'TOTAL (U)', 'GRAND TOTAL'];
-    const rows = last5Rows.map(row => {
-      const cols = [row.cat2, row.preReady, row.preUnready];
-      last5Years.forEach(y => { cols.push(row[`${y}_READY`] || 0, row[`${y}_UNREADY`] || 0); });
-      cols.push(row.READY_TOTAL, row.UNREADY_TOTAL, row.GRAND_TOTAL);
-      return cols;
-    });
-    const grandRow = ['GRAND TOTAL', grandLast5.preReady, grandLast5.preUnready];
-    last5Years.forEach(y => { grandRow.push(grandLast5Year[y].READY, grandLast5Year[y].UNREADY); });
-    grandRow.push(grandLast5.READY_TOTAL, grandLast5.UNREADY_TOTAL, grandLast5.GRAND_TOTAL);
-    return { headers, rows, grandRow };
-  };
-
-  const buildFullTableData = () => {
-    const headers = ['Case Category', ...allYears.flatMap(y => [`${y} (R)`, `${y} (U)`]), 'TOTAL (R)', 'TOTAL (U)', 'GRAND TOTAL'];
-    const rows = fullRows.map(row => {
-      const cols = [row.cat2];
-      allYears.forEach(y => { cols.push(row[`${y}_READY`] || 0, row[`${y}_UNREADY`] || 0); });
-      cols.push(row.READY_TOTAL, row.UNREADY_TOTAL, row.GRAND_TOTAL);
-      return cols;
-    });
-    const grandRow = ['GRAND TOTAL'];
-    allYears.forEach(y => { grandRow.push(grandFullYear[y].READY, grandFullYear[y].UNREADY); });
-    grandRow.push(grandFull.READY_TOTAL, grandFull.UNREADY_TOTAL, grandFull.GRAND_TOTAL);
-    return { headers, rows, grandRow };
-  };
-
-  const exportExcel = async () => {
-    setBusy('excel');
-    try {
-      const wb = XLSX.utils.book_new();
-
-      const last5 = buildLast5TableData();
-      const last5Data = [last5.headers, ...last5.rows, last5.grandRow];
-      const wsLast5 = XLSX.utils.aoa_to_sheet(last5Data);
-      XLSX.utils.book_append_sheet(wb, wsLast5, 'Last 5 Years');
-
-      const full = buildFullTableData();
-      const fullData = [full.headers, ...full.rows, full.grandRow];
-      const wsFull = XLSX.utils.aoa_to_sheet(fullData);
-      XLSX.utils.book_append_sheet(wb, wsFull, 'All Years');
-
-      XLSX.writeFile(wb, `${sideLabel}-ReadyUnready-Combined.xlsx`);
-    } catch (err) {
-      alert('Failed to export Excel: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setBusy('pdf');
-    try {
-      const doc = new jsPDF('landscape', 'pt', 'a4');
-
-      const addTable = (data, title) => {
-        const { headers, rows, grandRow } = data;
-        doc.setFontSize(14);
-        doc.text(title, 14, doc.lastAutoTable ? doc.lastAutoTable.finalY + 30 : 30);
-        doc.autoTable({
-          head: [headers],
-          body: rows.concat([grandRow]),
-          startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 50,
-          theme: 'striped',
-          headStyles: { fillColor: [15, 30, 53] },
-          styles: { fontSize: 8 },
-          margin: { left: 10, right: 10 },
-        });
-      };
-
-      addTable(buildLast5TableData(), `${sideLabel} Pending Cases – Last 5 Years (pre-${preYear} aggregated)`);
-      doc.addPage();
-      addTable(buildFullTableData(), `${sideLabel} Pending Cases – All Years`);
-
-      doc.save(`${sideLabel}-ReadyUnready-Combined.pdf`);
-    } catch (err) {
-      alert('Failed to export PDF: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   // ---- Render: Last5 first, then All Years ----
   return (
-    <>
+    <div ref={exportRef}>
       <div className="d-flex justify-content-end gap-2 mb-3">
         <Button variant="success" size="sm" disabled={busy === 'excel'} onClick={exportExcel}>
           <FileEarmarkExcel className="me-1" />{busy === 'excel' ? 'Generating...' : 'Download Excel'}
@@ -242,7 +156,7 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
 
       {/* Table 1: Last 5 Years + pre‑year */}
       <h5 className="mt-4">Last 5 Years (pre-{preYear} aggregated) – Ready / Unready</h5>
-      <Table striped bordered hover responsive>
+      <Table striped bordered hover responsive data-export-title={`Last 5 Years (pre-${preYear} aggregated) — Ready / Unready`} data-export-sheet="Last 5 Years">
         <thead className="table-dark">
           <tr>
             <th rowSpan={2}>Case Category</th>
@@ -304,7 +218,7 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
 
       {/* Table 2: All Years */}
       <h5 className="mt-5">All Years – Ready / Unready</h5>
-      <Table striped bordered hover responsive>
+      <Table striped bordered hover responsive data-export-title="All Years — Ready / Unready" data-export-sheet="All Years">
         <thead className="table-dark">
           <tr>
             <th rowSpan={2}>Case Category</th>
@@ -358,6 +272,6 @@ export default function ReadyUnreadyTable({ processedData, side = 'CIVIL', sideL
       </Table>
 
       <CaseListModal show={modal.show} title={modal.title} rows={modal.rows} onClose={close} />
-    </>
+    </div>
   );
 }

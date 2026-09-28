@@ -1,58 +1,66 @@
-import { useMemo, useState, useEffect } from 'react';
-import Card from 'react-bootstrap/Card';
-import Form from 'react-bootstrap/Form';
-import { BarChart } from 'react-bootstrap-icons';
-import { REPORTS } from './reportsRegistry';
+import { useState } from 'react';
+import { BarChart, ChevronDown, ChevronLeft, ChevronRight } from 'react-bootstrap-icons';
+import { REPORTS, REPORT_GROUPS } from './reportsRegistry';
 
-export default function ReportSelector({ processedData }) {
+// Big, obviously-clickable report picker. The report tables rendered below
+// are untouched — only the picker around them is styled here (CSS in App.jsx).
+export default function ReportSelector({ processedData, id }) {
   const [selectedKey, setSelectedKey] = useState(REPORTS[0]?.key || null);
 
-  const stats = useMemo(() => {
-    if (!processedData) return { total: 0, pending: 0, disposed: 0 };
-    const pending = processedData.filter(r => r.STATUS === 'PENDING').length;
-    const disposed = processedData.filter(r => r.STATUS === 'DISPOSE').length;
-    return { total: processedData.length, pending, disposed };
-  }, [processedData]);
+  const index = Math.max(0, REPORTS.findIndex(r => r.key === selectedKey));
+  const report = REPORTS[index];
 
-  useEffect(() => {
-    if (processedData && !selectedKey && REPORTS.length > 0) {
-      setSelectedKey(REPORTS[0].key);
-    }
-  }, [processedData, selectedKey]);
+  const groups = [...REPORT_GROUPS, 'Other']
+    .map(group => ({
+      group,
+      items: REPORTS.filter(r => (REPORT_GROUPS.includes(r.group) ? r.group : 'Other') === group),
+    }))
+    .filter(g => g.items.length > 0);
 
-  const report = REPORTS.find(r => r.key === selectedKey) || REPORTS[0];
+  const goTo = (i) => setSelectedKey(REPORTS[i].key);
 
   return (
-    <div className="mt-5">
-      <div className="d-flex align-items-center gap-2 mb-4">
-        <BarChart size={22} className="text-primary" />
-        <h4 className="mb-0 text-white">Detailed Case Analysis</h4>
+    <>
+      <div className="report-picker">
+        <div className="report-picker-head">
+          <label className="report-picker-step" htmlFor={id}>Step 2 · Select Report</label>
+          <span className="report-picker-count">{REPORTS.length} reports</span>
+        </div>
+
+        <div className="report-picker-row">
+          <button type="button" className="report-nav-btn" title="Previous report"
+            disabled={index === 0} onClick={() => goTo(index - 1)}>
+            <ChevronLeft size={18} />
+          </button>
+
+          <div className="report-select-wrap">
+            <BarChart size={20} className="report-select-icon" />
+            <select id={id} className="report-select" value={report?.key || ''}
+              onChange={(e) => setSelectedKey(e.target.value)}>
+              {groups.map(({ group, items }) => (
+                <optgroup key={group} label={group}>
+                  {items.map(r => (
+                    <option key={r.key} value={r.key}>{r.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <span className="report-select-arrow"><ChevronDown size={20} /></span>
+          </div>
+
+          <button type="button" className="report-nav-btn" title="Next report"
+            disabled={index === REPORTS.length - 1} onClick={() => goTo(index + 1)}>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+
+        <div className="report-picker-hint">↑ Click the box to choose another report</div>
+        {report?.description && <div className="report-picker-desc">{report.description}</div>}
       </div>
 
-      <div className="row g-3 mb-4">
-        <div className="col-md-3 col-sm-6"><Card body className="text-center"><div className="fs-4 fw-bold">{stats.total}</div><div className="text-muted small">Total Cases</div></Card></div>
-        <div className="col-md-3 col-sm-6"><Card body className="text-center"><div className="fs-4 fw-bold text-warning">{stats.pending}</div><div className="text-muted small">Pending</div></Card></div>
-        <div className="col-md-3 col-sm-6"><Card body className="text-center"><div className="fs-4 fw-bold text-success">{stats.disposed}</div><div className="text-muted small">Disposed</div></Card></div>
-        <div className="col-md-3 col-sm-6"><Card body className="text-center"><div className="fs-4 fw-bold text-info">{((stats.disposed / stats.total) * 100 || 0).toFixed(1)}%</div><div className="text-muted small">Disposal Rate</div></Card></div>
-      </div>
-
-      {/* "Select Report" section – now appears below stats */}
-      <Card body>
-        <Form.Group className="mb-3" controlId="report-select">
-          <Form.Label className="fw-semibold" style={{ color: '#0F1E35', fontWeight: '800' }}>
-            📊 Select Report
-          </Form.Label>
-          <Form.Select value={selectedKey || ''} onChange={(e) => setSelectedKey(e.target.value)}>
-            {REPORTS.map(r => (
-              <option key={r.key} value={r.key}>{r.label}</option>
-            ))}
-          </Form.Select>
-          <Form.Text muted>{report?.description || 'Select a report from the list.'}</Form.Text>
-        </Form.Group>
-
-        <hr />
+      <div className="report-body">
         {report ? report.render(processedData) : <p className="text-muted">Please select a report.</p>}
-      </Card>
-    </div>
+      </div>
+    </>
   );
 }

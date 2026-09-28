@@ -735,3 +735,75 @@
     background: #EF4444;
     color: #FFFFFF;
 }
+/* ── Advanced options (multi-court) ── */
+.advanced-options {
+    margin: 0.25rem 0 1rem;
+}
+
+.advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: none;
+    padding: 0.2rem 0;
+    font-size: 0.78rem;
+    color: var(--muted, #64748B);
+    cursor: pointer;
+}
+
+.advanced-toggle:hover {
+    color: var(--navy, #0F1E35);
+}
+
+.advanced-toggle .chevron {
+    transition: transform .18s;
+}
+
+.advanced-toggle .chevron.open {
+    transform: rotate(180deg);
+}
+
+.advanced-panel {
+    margin-top: 0.4rem;
+    padding: 0.7rem 0.9rem;
+    background: var(--slate, #F0F4F8);
+    border: 1px dashed var(--border, #E2E8F0);
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
+
+.advanced-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.advanced-check em {
+    color: var(--muted, #64748B);
+}
+
+.advanced-help {
+    margin-top: 0.5rem;
+    font-size: 0.76rem;
+    color: var(--muted, #64748B);
+    line-height: 1.45;
+}
+
+.chip-esta {
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--teal-d, #009D90);
+    background: rgba(0, 194, 178, .12);
+    padding: 1px 6px;
+    border-radius: 99px;
+}
+
+.process-mode-tag {
+    margin-top: 0.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #B45309;
+}

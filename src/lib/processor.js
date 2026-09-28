@@ -1,55 +1,70 @@
-// --- ENHANCED processor.js with Smart Merge Detection, updated IPC SPECIAL (AND with CAT1='CC'), CRMA SPECIAL, and CAT2 renaming ---
+// --- ENHANCED processor.js – CNR as unique key, CASE NO for type/year, Dashboard append ---
 
 import * as XLSX from 'xlsx';
 import DuplicateRemover from './duplicate-remover.js';
 import { determineSide } from './side.js';
+import { normalizeCaseNo, parseCaseNo, extractYear, SOURCE_FILE_KEY, mergeSourceFiles, sourceFileFirst, caseKey } from './caseFilters.js';
 
 /** @typedef {Object.<string, any>} DataRow */
 
 export class CourtCaseProcessor {
 	constructor() {
 		this.today = new Date();
+		// Map source headers → internal standard names.
+		// CNR is the unique key. CASE NO holds type/number/year for CAT1.
 		this.columnMapping = {
 			'SR. NO.': 'SR NO',
-			CASES: 'UID',
+			'SR NO.': 'SR NO',
+			// Case identifiers
+			CASES: 'CASE NO',
+			'CASE NO.': 'CASE NO',
+			'CASE NO': 'CASE NO',
+			CNR: 'CNR',
+			// Party / advocate
 			'PARTY NAME': 'NAME',
+			'PETITIONER NAME VS RESPONDENT NAME': 'NAME',
+			ADVOCATE: 'ADV',
+			// Dates
 			'REGISTRATION DATE': 'DATE OF REG',
 			'DATE OF REGISTRATION': 'DATE OF REG',
 			'DATE OF DECISION': 'DATE OF DIS',
+			// Disposal / status extras (Dashboard optional)
 			'CONTESTED/UNCONTESTED': 'BJ OBJ',
 			'DISPOSAL NATURE': 'DIS NATURE',
+			'NATURE OF DISPOSAL': 'DIS NATURE',
 			NATURE: 'NATURE',
+			// Pending extras (Dashboard optional)
 			AGE: 'SYS AGE',
 			'READY / UNREADY / STAYED': 'RU',
 			'NEXT DATE': 'NEXT DATE',
 			'NEXT PURPOSE': 'STAGE',
+			PURPOSE: 'STAGE',
 			'ON SAME STAGE SINCE': 'SAME STAGE',
 			'DORMANT CASE/SINE DIE CASE': 'DF',
 			'DELAY REASON': 'DEALY REASON',
-			'CASE NO.': 'UID',
-			'PETITIONER NAME VS RESPONDENT NAME': 'NAME',
-			ADVOCATE: 'ADV',
-			'NATURE OF DISPOSAL': 'DIS NATURE',
+			// Other
 			'ACT SECTION': 'ACT',
-			PURPOSE: 'STAGE'
+			DESIGNATION: 'DESIGNATION'
 		};
 		/** @type {DataRow[] | null} */
 		this.processedData = null;
 		/** @type {Record<string, number>} */
 		this.stats = {
 			totalRecords: 0,
+			mainRecords: 0,
 			duplicatesFound: 0,
 			duplicatesRemoved: 0,
-			pendingRemoved: 0,
-			disposeKept: 0,
-			invalidDatesCount: 0
+			disposeRemoved: 0,
+			pendingKept: 0,
+			invalidDatesCount: 0,
+			dashboardAppended: 0,
+			skippedNoKey: 0
 		};
 		this.duplicateRemover = new DuplicateRemover();
 	}
 
 	/**
 	 * Reads an Excel file using xlsx, with ENHANCED merge-handling logic.
-	 * Intelligently detects and skips merged title rows.
 	 * @param {File} file
 	 * @returns {Promise<DataRow[]>}
 	 */
@@ -70,7 +85,6 @@ export class CourtCaseProcessor {
 						return resolve([]);
 					}
 
-					// --- ENHANCED MERGE-HANDLING LOGIC ---
 					const range = XLSX.utils.decode_range(worksheet['!ref']);
 					let headerRowIndex = range.s.r;
 
@@ -134,7 +148,7 @@ export class CourtCaseProcessor {
 		if (!data) throw new Error('No processed data to download.');
 		try {
 			const workbook = XLSX.utils.book_new();
-			const mainWorksheet = XLSX.utils.json_to_sheet(data, { dateNF: 'dd-mm-yyyy' });
+			const mainWorksheet = XLSX.utils.json_to_sheet(data.map(sourceFileFirst), { dateNF: 'dd-mm-yyyy' });
 			XLSX.utils.book_append_sheet(workbook, mainWorksheet, 'Processed Data');
 			const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
 			const blob = new Blob([excelBuffer], {
@@ -283,12 +297,14 @@ export class CourtCaseProcessor {
 		});
 	}
 
-	/** @param {string | undefined | null} uid */
-	extractCat1(uid) {
-		if (!uid) return 'UNKNOWN';
-		const uidStr = String(uid).trim();
-		const slashPos = uidStr.indexOf('/');
-		return slashPos > 0 ? uidStr.substring(0, slashPos).toUpperCase() : 'UNKNOWN';
+	/**
+	 * Extract CAT1 (case type) from Case No. e.g. "MACEX/20/1992" → "MACEX"
+	 * @param {string | undefined | null} caseNo
+	 */
+	extractCat1(caseNo) {
+		if (!caseNo) return 'UNKNOWN';
+		const { type } = parseCaseNo(caseNo);
+		return type && type !== 'N/A' ? type.toUpperCase() : 'UNKNOWN';
 	}
 
 	/**
@@ -297,9 +313,6 @@ export class CourtCaseProcessor {
 	 *   (a) ACT contains specific IPC sections (409, 467, 465, 468, 471), OR
 	 *       specific BNS sections/subsections (316(5), 336(2), 336(3), 338, 340(2)), AND
 	 *   (b) CAT1 is exactly 'CC'.
-	 * @param {string} act - The ACT column value.
-	 * @param {string} cat1 - The CAT1 value (extracted from UID).
-	 * @returns {string} 'IPC SPECIAL' if both conditions are met, else ''.
 	 */
 	checkIpcSpecial(act, cat1) {
 		if (cat1 !== 'CC') return '';
@@ -333,10 +346,6 @@ export class CourtCaseProcessor {
 
 	/**
 	 * Check for CRMA SPECIAL (MUDDAMAL).
-	 * Logic: CAT1 = "CRMA J", NATURE = "Other Misc. Appln.",
-	 * ACT contains "THE BHARATIYA NAGARIK SURAKSHA SANHITA" AND at least one of (497, 498, 503)
-	 * @param {DataRow} row
-	 * @returns {string} 'MUDDAMAL' if conditions met, else ''.
 	 */
 	checkCrmaSpecial(row) {
 		const cat1 = String(row['CAT1'] || '').trim();
@@ -352,11 +361,6 @@ export class CourtCaseProcessor {
 		return (hasPhrase && hasSection) ? 'MUDDAMAL' : '';
 	}
 
-	/**
-	 * Create CAT2 by combining CAT1, NATURE, IPC SPECIAL (optional), and CRMA SPECIAL (optional)
-	 * @param {DataRow} row
-	 * @returns {string}
-	 */
 	createCat2(row) {
 		const cat1 = String(row['CAT1'] || '').trim();
 		const nature = String(row['NATURE'] || '').trim();
@@ -366,14 +370,8 @@ export class CourtCaseProcessor {
 		return parts.length > 0 ? parts.join('/') : 'UNKNOWN';
 	}
 
-	/**
-	 * NEW: Rename specific CAT2 values according to business rules.
-	 * @param {string} cat2 - The original CAT2 value.
-	 * @returns {string} The renamed CAT2 value.
-	 */
 	renameCat2(cat2) {
 		if (!cat2) return cat2;
-		// Exact matches (case-sensitive)
 		if (cat2 === 'CC/IPC/IPC SPECIAL') return 'CC/IPC SPECIAL';
 		if (cat2 === 'CRMA J/Appln under Protection of Woman Domestic') return 'CRMA J/DOMESTIC';
 		if (cat2 === 'CRMA J/Bail Application') return 'CRMA J/BAIL';
@@ -400,47 +398,173 @@ export class CourtCaseProcessor {
 		});
 	}
 
-	/** @param {DataRow[]} data */
-	processData(data) {
+	/**
+	 * Detect whether a row comes from QueryBuilder (has CNR) or Dashboard (no CNR).
+	 * @param {DataRow} row
+	 * @param {Set<string>} [qbFiles] Files known to be QueryBuilder exports. A row
+	 *   from such a file counts as QueryBuilder even if its own CNR cell is blank,
+	 *   so it isn't mistaken for a Dashboard row and silently dropped.
+	 */
+	isQueryBuilderRow(row, qbFiles) {
+		if (qbFiles && qbFiles.has(row[SOURCE_FILE_KEY])) return true;
+		const cnr = row['CNR'];
+		return cnr !== undefined && cnr !== null && String(cnr).trim() !== '';
+	}
+
+	/**
+	 * Append optional Dashboard columns onto matching QueryBuilder rows.
+	 *
+	 * Columns appended (only if empty on main row):
+	 *   BJ OBJ          ← Contested/Uncontested
+	 *   RU              ← Ready / Unready / Stayed
+	 *   SAME STAGE      ← On same Stage since
+	 *   DEALY REASON    ← Delay Reason
+	 *
+	 * QueryBuilder rows are the main data; Dashboard rows never become rows
+	 * themselves. A PENDING QueryBuilder row only takes values from the Pending
+	 * Dashboard, a DISPOSE row only from the Disposed Dashboard (STATUS must
+	 * match), so the same Case No. in both Dashboard files can't cross over.
+	 *
+	 * Match rules:
+	 *   Single court (default): match on normalized CASE NO only.
+	 *   Multi court:           match on CASE NO + ESTA (from filename).
+	 *
+	 * @param {DataRow[]} qbRows
+	 * @param {DataRow[]} dashRows
+	 * @param {boolean} multiCourt
+	 * @returns {DataRow[]}
+	 */
+	appendDashboardColumns(qbRows, dashRows, multiCourt = false) {
+		if (!dashRows || dashRows.length === 0) return qbRows;
+
+		const optionalFields = ['BJ OBJ', 'RU', 'SAME STAGE', 'DEALY REASON'];
+
+		/** @type {Object.<string, DataRow[]>} */
+		const dashIndex = {};
+		dashRows.forEach((row) => {
+			const caseKey = normalizeCaseNo(row['CASE NO']);
+			if (!caseKey) return;
+			const esta = multiCourt ? String(row['ESTA'] || '').trim().toUpperCase() : '';
+			const key = multiCourt ? `${caseKey}||${esta}` : caseKey;
+			if (!dashIndex[key]) dashIndex[key] = [];
+			dashIndex[key].push(row);
+		});
+
+		let appended = 0;
+
+		const result = qbRows.map((qb) => {
+			const caseKey = normalizeCaseNo(qb['CASE NO']);
+			if (!caseKey) return qb;
+
+			const esta = multiCourt ? String(qb['ESTA'] || '').trim().toUpperCase() : '';
+			const key = multiCourt ? `${caseKey}||${esta}` : caseKey;
+			const candidates = dashIndex[key];
+			if (!candidates || candidates.length === 0) return qb;
+
+			const isEmpty = (v) => v === undefined || v === null || String(v).trim() === '';
+			const ordered = candidates.filter((d) => d['STATUS'] === qb['STATUS']);
+			const usedFiles = [];
+			optionalFields.forEach((field) => {
+				if (!isEmpty(qb[field])) return;
+				const source = ordered.find((d) => !isEmpty(d[field]));
+				if (source) {
+					qb[field] = source[field];
+					usedFiles.push(source[SOURCE_FILE_KEY]);
+				}
+			});
+			if (usedFiles.length > 0) {
+				appended++;
+				qb[SOURCE_FILE_KEY] = mergeSourceFiles(qb[SOURCE_FILE_KEY], ...usedFiles);
+			}
+			return qb;
+		});
+
+		this.stats.dashboardAppended = appended;
+		return result;
+	}
+
+	/**
+	 * @param {DataRow[]} data
+	 * @param {{ multiCourt?: boolean }} [options]
+	 */
+	processData(data, options = {}) {
+
 		this.stats.totalRecords = data ? data.length : 0;
+		this.stats.mainRecords = 0;
+		this.stats.dashboardAppended = 0;
+		this.stats.skippedNoKey = 0;
 		if (!data || data.length === 0) {
 			this.processedData = [];
 			return [];
 		}
+		const multiCourt = !!(options && options.multiCourt);
+
 		try {
 			let processed = this.mapColumnNames(data);
 
-			// ─── ENSURE 'DATE OF DIS' EXISTS ON EVERY ROW ───
+			// Ensure DATE OF DIS exists
 			processed = processed.map(row => {
 				if (!('DATE OF DIS' in row)) {
 					row['DATE OF DIS'] = null;
+				}
+				// CIS Dashboard exports "On same Stage since" with no space
+				// between the date and the duration ("28-05-20264 months").
+				const sameStage = row['SAME STAGE'];
+				if (typeof sameStage === 'string') {
+					row['SAME STAGE'] = sameStage.replace(/^(\d{2}-\d{2}-\d{4})(?=\d)/, '$1 ');
 				}
 				return row;
 			});
 
 			processed = this.addStatusColumn(processed);
-			processed = this.duplicateRemover.removeDuplicates(processed, 'UID');
+
+			// Split QueryBuilder (main) vs Dashboard (optional append).
+			// A file is QueryBuilder if any of its rows has a CNR.
+			const qbFiles = new Set(
+				processed.filter((r) => this.isQueryBuilderRow(r) && r[SOURCE_FILE_KEY]).map((r) => r[SOURCE_FILE_KEY])
+			);
+			const qbRows = processed.filter((r) => this.isQueryBuilderRow(r, qbFiles));
+			const dashRows = processed.filter((r) => !this.isQueryBuilderRow(r, qbFiles));
+
+			let mainRows;
+			if (qbRows.length > 0) {
+				mainRows = this.appendDashboardColumns(qbRows, dashRows, multiCourt);
+			} else {
+				// Fallback: Dashboard-only upload – use CASE NO as key later
+				mainRows = processed;
+			}
+
+			// Main rows = QueryBuilder rows (Dashboard rows only fill in columns).
+			// For a Dashboard-only upload the Dashboard rows are the main rows.
+			this.stats.mainRecords = mainRows.length;
+
+			// Deduplicate by CNR, falling back to normalized CASE NO (+ ESTA in
+			// multi-court mode). CNR is already establishment-unique.
+			mainRows = this.duplicateRemover.removeDuplicates(mainRows, (row) => caseKey(row, multiCourt));
 			const dupStats = this.duplicateRemover.getStats();
 			this.stats.duplicatesFound = dupStats.duplicatesFound;
 			this.stats.duplicatesRemoved = dupStats.duplicatesRemoved;
-			this.stats.pendingRemoved = dupStats.pendingRemoved;
-			this.stats.disposeKept = dupStats.disposeKept;
-			processed = this.calculateAges(processed);
-			processed = this.assignAgeCategories(processed);
-			processed = processed.map((row) => {
-				const uid = row['UID'] || '';
-				const cat1 = this.extractCat1(uid);
+			this.stats.disposeRemoved = dupStats.disposeRemoved;
+			this.stats.pendingKept = dupStats.pendingKept;
+			this.stats.skippedNoKey = dupStats.skippedNoKey;
+
+			mainRows = this.calculateAges(mainRows);
+			mainRows = this.assignAgeCategories(mainRows);
+			mainRows = mainRows.map((row) => {
+				const caseNo = row['CASE NO'] || '';
+				const cat1 = this.extractCat1(caseNo);
 				row['CAT1'] = cat1;
 				row['SIDE'] = determineSide(cat1);
 				row['IPC SPECIAL'] = this.checkIpcSpecial(row['ACT'], cat1);
 				row['CASE AGAINST WOMEN'] = this.checkCaseAgainstWomen(row['ACT']);
 				row['CRMA SPECIAL'] = this.checkCrmaSpecial(row);
-				// Compute CAT2 and then apply renaming
 				const rawCat2 = this.createCat2(row);
 				row['CAT2'] = this.renameCat2(rawCat2);
+				// Convenience year field (from Case No, fallback CNR)
+				row['YEAR'] = extractYear(caseNo, row['CNR']);
 				return row;
 			});
-			this.processedData = processed;
+			this.processedData = mainRows;
 			return this.processedData;
 		} catch (error) {
 			this.processedData = null;
@@ -455,16 +579,19 @@ export class CourtCaseProcessor {
 		const summary = {
 			totalRecordsProcessed: data.length,
 			initialRecords: this.stats.totalRecords,
+			mainRecords: this.stats.mainRecords,
 			pendingCases: data.filter((row) => row.STATUS === 'PENDING').length,
 			disposedCases: data.filter((row) => row.STATUS === 'DISPOSE').length,
 			civilCases: data.filter((row) => row.SIDE === 'CIVIL').length,
 			criminalCases: data.filter((row) => row.SIDE === 'CRIMINAL').length,
 			unknownSideCases: data.filter((row) => row.SIDE === 'UNKNOWN').length,
 			avgAgePending: 'NA',
-			oldestCase: { age: 0, uid: 'N/A' },
+			oldestCase: { age: 0, caseNo: 'N/A', cnr: 'N/A' },
 			duplicatesFound: this.stats.duplicatesFound,
 			duplicatesRemoved: this.stats.duplicatesRemoved,
-			recordsWithInvalidDates: this.stats.invalidDatesCount
+			recordsWithInvalidDates: this.stats.invalidDatesCount,
+			dashboardAppended: this.stats.dashboardAppended,
+			skippedNoKey: this.stats.skippedNoKey
 		};
 		const validPendingCases = data.filter(
 			(row) => row.STATUS === 'PENDING' && row.AGE_VALID === true && typeof row.AGE_Y === 'number'
@@ -477,11 +604,15 @@ export class CourtCaseProcessor {
 				(maxAgeCase, currentCase) => {
 					const currentAge = Number(currentCase.AGE_Y) || 0;
 					if (currentAge > maxAgeCase.age) {
-						return { age: currentAge, uid: String(currentCase.UID || 'Unknown UID') };
+						return {
+							age: currentAge,
+							caseNo: String(currentCase['CASE NO'] || 'Unknown'),
+							cnr: String(currentCase.CNR || '')
+						};
 					}
 					return maxAgeCase;
 				},
-				{ age: -1, uid: '' }
+				{ age: -1, caseNo: '', cnr: '' }
 			);
 
 			if (oldest.age !== -1) summary.oldestCase = oldest;

@@ -1,13 +1,11 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import { FileEarmarkExcel, FileEarmarkPdf } from 'react-bootstrap-icons';
 import { AGE_CAT3_LIST, normalizeContested, filterCases } from '../lib/caseFilters';
 import { useDrillDown } from '../hooks/useDrillDown';
 import CaseListModal from './common/CaseListModal';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { useReportExport } from '../hooks/useReportExport';
 
 const isSpecialCategory = (cat2) => {
   if (!cat2) return false;
@@ -32,7 +30,10 @@ export default function AgeBreakdownTable({
   bjObjSplit = false,
 }) {
   const { modal, open, close } = useDrillDown();
-  const [busy, setBusy] = useState(null);
+  const { ref: exportRef, busy, exportExcel, exportPdf } = useReportExport({
+    reportTitle: `${side === 'CIVIL' ? 'Civil' : 'Criminal'} ${status === 'DISPOSE' ? 'Disposed' : 'Pending'} Cases — Age CAT3 Breakdown`,
+    fileBase: `${side === 'CIVIL' ? 'Civil' : 'Criminal'}-${status === 'DISPOSE' ? 'Disposed' : 'Pending'}-AgeBreakdown`,
+  });
 
   const data = useMemo(() => {
     const filtered = filterCases(processedData, { STATUS: status, SIDE: side });
@@ -142,93 +143,9 @@ export default function AgeBreakdownTable({
     return isRed ? { color: 'red' } : { color: '#10B981', fontWeight: 'bold' };
   };
 
-  // ---- Export helpers (unchanged) ----
-  const buildTableData = () => {
-    if (mode === 'bjobj') {
-      const headers = ['Case Category'];
-      AGE_CAT3_LIST.forEach(a => { headers.push(`${a}(BJ)`, `${a}(OBJ)`); });
-      headers.push('TOTAL(BJ)', 'TOTAL(OBJ)', 'GRAND TOTAL');
-      if (includeLA) headers.push('Disposal in L.A.');
-      const rows = cat2Keys.map(cat2 => {
-        const row = pivot[cat2];
-        const cols = [cat2];
-        AGE_CAT3_LIST.forEach(a => { cols.push(row[`${a}_BJ`] || 0, row[`${a}_OBJ`] || 0); });
-        cols.push(row.TOTAL_BJ, row.TOTAL_OBJ, row.GRAND_TOTAL);
-        if (includeLA) cols.push(row.LA_TOTAL || 0);
-        return cols;
-      });
-      const grandRow = ['GRAND TOTAL'];
-      AGE_CAT3_LIST.forEach(a => { grandRow.push(grandTotal[`${a}_BJ`] || 0, grandTotal[`${a}_OBJ`] || 0); });
-      grandRow.push(grandTotal.TOTAL_BJ, grandTotal.TOTAL_OBJ, grandTotal.GRAND_TOTAL);
-      if (includeLA) grandRow.push(grandLA.LA);
-      return { headers, rows, grandRow };
-    } else {
-      // simple mode
-      const headers = ['Case Category', ...AGE_CAT3_LIST, 'TOTAL'];
-      if (includeLA) headers.push('Disposal in L.A.');
-      const rows = cat2Keys.map(cat2 => {
-        const row = pivot[cat2];
-        const cols = [cat2];
-        AGE_CAT3_LIST.forEach(a => cols.push(row[a] || 0));
-        cols.push(row.TOTAL);
-        if (includeLA) cols.push(row.LA || 0);
-        return cols;
-      });
-      const grandRow = ['GRAND TOTAL'];
-      AGE_CAT3_LIST.forEach(a => grandRow.push(grandTotal[a] || 0));
-      grandRow.push(grandTotal.TOTAL);
-      if (includeLA) grandRow.push(grandLA.LA);
-      return { headers, rows, grandRow };
-    }
-  };
-
-  const exportExcel = async () => {
-    setBusy('excel');
-    try {
-      const wb = XLSX.utils.book_new();
-      const { headers, rows, grandRow } = buildTableData();
-      const data = [headers, ...rows, grandRow];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, ws, 'Data');
-      const sideLabel = side === 'CIVIL' ? 'Civil' : 'Criminal';
-      const statusLabel = status === 'DISPOSE' ? 'Disposed' : 'Pending';
-      XLSX.writeFile(wb, `${sideLabel}-${statusLabel}-AgeBreakdown.xlsx`);
-    } catch (err) {
-      alert('Failed to export Excel: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setBusy('pdf');
-    try {
-      const doc = new jsPDF('landscape', 'pt', 'a4');
-      const { headers, rows, grandRow } = buildTableData();
-      const sideLabel = side === 'CIVIL' ? 'Civil' : 'Criminal';
-      const statusLabel = status === 'DISPOSE' ? 'Disposed' : 'Pending';
-      doc.setFontSize(14);
-      doc.text(`${sideLabel} ${statusLabel} Cases – Age CAT3 Breakdown`, 14, 30);
-      doc.autoTable({
-        head: [headers],
-        body: rows.concat([grandRow]),
-        startY: 50,
-        theme: 'striped',
-        headStyles: { fillColor: [15, 30, 53] },
-        styles: { fontSize: 8 },
-        margin: { left: 10, right: 10 },
-      });
-      doc.save(`${sideLabel}-${statusLabel}-AgeBreakdown.pdf`);
-    } catch (err) {
-      alert('Failed to export PDF: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   // ---- Render ----
   return (
-    <>
+    <div ref={exportRef}>
       {showExport && (
         <div className="d-flex justify-content-end gap-2 mb-3">
           <Button variant="success" size="sm" disabled={busy === 'excel'} onClick={exportExcel}>
@@ -240,7 +157,7 @@ export default function AgeBreakdownTable({
         </div>
       )}
 
-      <Table striped bordered hover responsive>
+      <Table striped bordered hover responsive data-export-sheet={`${side === 'CIVIL' ? 'Civil' : 'Criminal'} ${status === 'DISPOSE' ? 'Disposed' : 'Pending'}`}>
         <thead className="table-dark">
           {mode === 'bjobj' ? (
             <>
@@ -340,6 +257,6 @@ export default function AgeBreakdownTable({
       </Table>
 
       <CaseListModal show={modal.show} title={modal.title} rows={modal.rows} onClose={close} />
-    </>
+    </div>
   );
 }

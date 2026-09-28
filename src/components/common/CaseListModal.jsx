@@ -19,7 +19,7 @@ export default function CaseListModal({ show, title, rows, onClose }) {
             <thead className="table-dark">
               <tr>
                 <th>SR NO</th>
-                <th>CASE NUMBER (UID)</th>
+                <th>CASE NO / CNR</th>
                 <th>BJ OBJ</th>
                 <th>DIS NATURE</th>
                 <th>NATURE</th>
@@ -32,7 +32,7 @@ export default function CaseListModal({ show, title, rows, onClose }) {
               {rows.map((row, idx) => (
                 <tr key={idx}>
                   <td>{idx + 1}</td>
-                  <td>{row.UID || ''}</td>
+                  <td>{row['CASE NO'] || row.CNR || ''}</td>
                   <td>{row['BJ OBJ'] || ''}</td>
                   <td>{row['DIS NATURE'] || ''}</td>
                   <td>{row.NATURE || ''}</td>

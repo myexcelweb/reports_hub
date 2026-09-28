@@ -1,21 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 import Alert from 'react-bootstrap/Alert';
 import { FileEarmarkExcel, FileEarmarkPdf } from 'react-bootstrap-icons';
-import { normalizeContested, isLokAdalat, filterCases } from '../lib/caseFilters';
+import { normalizeContested, isLokAdalat } from '../lib/caseFilters';
 import { useDrillDown } from '../hooks/useDrillDown';
 import CaseListModal from './common/CaseListModal';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { useReportExport } from '../hooks/useReportExport';
 
 // Disposed cases split by Contested / Uncontested(Regular) / Uncontested(Lok Adalat).
 export default function DisposalNatureTable({ processedData }) {
   const { modal, open, close } = useDrillDown();
-  const [busy, setBusy] = useState(null);
+  const { ref: exportRef, busy, exportExcel, exportPdf } = useReportExport({ reportTitle: 'Disposal Analysis — By Nature & Lok Adalat', fileBase: 'Disposal-Nature-Analysis' });
 
   const report = useMemo(() => {
     if (!processedData) return null;
@@ -74,68 +72,6 @@ export default function DisposalNatureTable({ processedData }) {
     open(title, rows);
   };
 
-  // ---- Export helpers ----
-  const buildTableData = (data, title) => {
-    const headers = ['Case Category', 'BJ', 'OBJ', 'OBJ(LA)', 'Total'];
-    const rows = data.rows.map(r => [r.cat2, r.contested, r.uncontestedR, r.uncontestedLA, r.total]);
-    const grandRow = ['Total', data.totals.contested, data.totals.uncontestedR, data.totals.uncontestedLA, data.totals.total];
-    return { headers, rows, grandRow };
-  };
-
-  const exportExcel = async () => {
-    setBusy('excel');
-    try {
-      const wb = XLSX.utils.book_new();
-
-      const civil = buildTableData(report.civil);
-      const civilData = [civil.headers, ...civil.rows, civil.grandRow];
-      const wsCivil = XLSX.utils.aoa_to_sheet(civilData);
-      XLSX.utils.book_append_sheet(wb, wsCivil, 'Civil (Disposed)');
-
-      const criminal = buildTableData(report.criminal);
-      const criminalData = [criminal.headers, ...criminal.rows, criminal.grandRow];
-      const wsCriminal = XLSX.utils.aoa_to_sheet(criminalData);
-      XLSX.utils.book_append_sheet(wb, wsCriminal, 'Criminal (Disposed)');
-
-      XLSX.writeFile(wb, `Disposal-Nature-Analysis.xlsx`);
-    } catch (err) {
-      alert('Failed to export Excel: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setBusy('pdf');
-    try {
-      const doc = new jsPDF('landscape', 'pt', 'a4');
-
-      const addTable = (data, title) => {
-        const { headers, rows, grandRow } = data;
-        doc.setFontSize(14);
-        doc.text(title, 14, doc.lastAutoTable ? doc.lastAutoTable.finalY + 30 : 30);
-        doc.autoTable({
-          head: [headers],
-          body: rows.concat([grandRow]),
-          startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 50,
-          theme: 'striped',
-          headStyles: { fillColor: [15, 30, 53] },
-          styles: { fontSize: 10 },
-          margin: { left: 10, right: 10 },
-        });
-      };
-
-      addTable(buildTableData(report.civil), 'Civil (Disposed) – Nature Breakdown');
-      doc.addPage();
-      addTable(buildTableData(report.criminal), 'Criminal (Disposed) – Nature Breakdown');
-      doc.save('Disposal-Nature-Analysis.pdf');
-    } catch (err) {
-      alert('Failed to export PDF: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   // ---- Render ----
   const SideTable = ({ title, side, data }) => {
     if (data.rows.length === 0) {
@@ -144,7 +80,7 @@ export default function DisposalNatureTable({ processedData }) {
     return (
       <div>
         <h5 className="text-center">{title}</h5>
-        <Table striped bordered hover responsive size="sm">
+        <Table striped bordered hover responsive size="sm" data-export-title={`${title} — Nature Breakdown`} data-export-sheet={title}>
           <thead className="table-dark">
             <tr><th>Case Category</th><th className="text-center">BJ</th><th className="text-center">OBJ</th><th className="text-center">OBJ(LA)</th><th className="text-center">Total</th></tr>
           </thead>
@@ -174,7 +110,7 @@ export default function DisposalNatureTable({ processedData }) {
   };
 
   return (
-    <>
+    <div ref={exportRef}>
       <div className="d-flex justify-content-end gap-2 mb-3">
         <Button variant="success" size="sm" disabled={busy === 'excel'} onClick={exportExcel}>
           <FileEarmarkExcel className="me-1" />{busy === 'excel' ? 'Generating...' : 'Download Excel'}
@@ -190,6 +126,6 @@ export default function DisposalNatureTable({ processedData }) {
       </Row>
 
       <CaseListModal show={modal.show} title={modal.title} rows={modal.rows} onClose={close} />
-    </>
+    </div>
   );
 }

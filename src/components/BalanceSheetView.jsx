@@ -1,31 +1,52 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import { FileEarmarkPdf, FileEarmarkExcel } from 'react-bootstrap-icons';
-import { buildBalanceSheet, downloadBalanceSheetPdf, downloadBalanceSheetExcel } from '../lib/balanceSheet';
+import { buildBalanceSheet } from '../lib/balanceSheet';
+import { useReportExport } from '../hooks/useReportExport';
 import { normalizeRU, filterCases } from '../lib/caseFilters';
 
-// Helper: extract the numeric part from a UID like "CMA SC/46/2024" → "46"
-const extractNumberFromUID = (uid) => {
-  if (!uid || typeof uid !== 'string') return '';
-  const parts = uid.split('/');
+// Helper: extract the numeric part from a Case No like "CMA SC/46/2024" → "46"
+const extractNumberFromCaseNo = (caseNo) => {
+  if (!caseNo || typeof caseNo !== 'string') return '';
+  const parts = caseNo.split('/');
   if (parts.length >= 3) {
     return parts[parts.length - 2];
   }
-  return uid;
+  return caseNo;
 };
 
-// Helper: extract year from UID (last 4 characters)
-const extractYearFromUID = (uid) => {
-  if (!uid || typeof uid !== 'string') return null;
-  const year = uid.slice(-4);
-  return /^\d{4}$/.test(year) ? year : null;
+// Helper: extract year from Case No or CNR
+const extractYearFromCase = (caseNo, cnr) => {
+  if (caseNo && typeof caseNo === 'string') {
+    const parts = caseNo.split('/');
+    if (parts.length >= 3) {
+      const y = parts[parts.length - 1];
+      if (/^\d{4}$/.test(y)) return y;
+    }
+  }
+  if (cnr && typeof cnr === 'string' && cnr.length >= 4) {
+    const y = cnr.slice(-4);
+    if (/^\d{4}$/.test(y)) return y;
+  }
+  return null;
 };
 
-export default function BalanceSheetView({ processedData }) {
-  const [viewMode, setViewMode] = useState('CIVIL');
-  const [busy, setBusy] = useState(null);
+const VIEW_LABELS = { CIVIL: 'Civil', CRIMINAL: 'Criminal', CIVIL_RU: 'Civil (Ready/Unready)' };
+
+// Sort full case numbers ("CC/12/2024") by their numeric part.
+const byCaseNumber = (a, b) => Number(extractNumberFromCaseNo(a)) - Number(extractNumberFromCaseNo(b));
+
+export default function BalanceSheetView({ processedData, initialView = 'CIVIL' }) {
+  const [viewMode, setViewMode] = useState(initialView);
+  // Unique radio-group name: several copies of this view can be on the page
+  // at once (the "all reports" export renders them off-screen).
+  const radioName = `viewMode-${useId()}`;
+  const { ref: exportRef, busy, exportExcel, exportPdf } = useReportExport({
+    reportTitle: `${VIEW_LABELS[viewMode]} Balance Sheet — Pending Cases`,
+    fileBase: `${VIEW_LABELS[viewMode].replace(/[^A-Za-z]+/g, '-').replace(/-$/, '')}-Balance-Sheet`,
+  });
 
   // ---- Normal balance sheets (Civil / Criminal) ----
   const balance = useMemo(() => {
@@ -45,15 +66,15 @@ export default function BalanceSheetView({ processedData }) {
     const grouped = {};
     pendingCivil.forEach(row => {
       const cat2 = row.CAT2 || 'UNKNOWN';
-      const year = extractYearFromUID(row.UID);
+      const year = extractYearFromCase(row['CASE NO'], row.CNR);
       if (!year) return;
       const ru = normalizeRU(row.RU);
       if (!ru) return;
-      const uid = row.UID || '';
+      const caseNo = row['CASE NO'] || row.CNR || '';
       grouped[cat2] ??= {};
       grouped[cat2][year] ??= { READY: [], UNREADY: [] };
-      if (ru === 'READY') grouped[cat2][year].READY.push(uid);
-      else grouped[cat2][year].UNREADY.push(uid);
+      if (ru === 'READY') grouped[cat2][year].READY.push(caseNo);
+      else grouped[cat2][year].UNREADY.push(caseNo);
     });
 
     const groupedData = {};
@@ -61,8 +82,8 @@ export default function BalanceSheetView({ processedData }) {
     Object.keys(grouped).forEach(cat2 => {
       groupedData[cat2] = {};
       Object.keys(grouped[cat2]).forEach(year => {
-        const readyList = grouped[cat2][year].READY.sort((a, b) => Number(a) - Number(b));
-        const unreadyList = grouped[cat2][year].UNREADY.sort((a, b) => Number(a) - Number(b));
+        const readyList = grouped[cat2][year].READY.sort(byCaseNumber);
+        const unreadyList = grouped[cat2][year].UNREADY.sort(byCaseNumber);
         groupedData[cat2][year] = { READY: readyList, UNREADY: unreadyList };
         totalCases += readyList.length + unreadyList.length;
       });
@@ -81,54 +102,22 @@ export default function BalanceSheetView({ processedData }) {
     isReadyUnready = true;
   } else {
     const side = viewMode;
-    if (!balance) return <p className="text-muted">No processed data available.</p>;
-    currentData = balance[side];
+    currentData = balance ? balance[side] : null;
     sideLabel = side === 'CIVIL' ? 'Civil' : 'Criminal';
     isReadyUnready = false;
   }
 
-  if (!currentData) return <p className="text-muted">No data for this view.</p>;
-
-  const { groupedData, totalCases } = currentData;
-
-  // ---- Export ----
-  const handleDownload = async (type) => {
-    setBusy(type);
-    try {
-      let exportData;
-      if (isReadyUnready) {
-        exportData = {};
-        Object.keys(groupedData).forEach(cat2 => {
-          exportData[cat2] = {};
-          Object.keys(groupedData[cat2]).forEach(year => {
-            const { READY, UNREADY } = groupedData[cat2][year];
-            exportData[cat2][year] = [...READY, ...UNREADY].sort((a, b) => Number(a) - Number(b));
-          });
-        });
-      } else {
-        exportData = groupedData;
-      }
-
-      if (type === 'pdf') {
-        await downloadBalanceSheetPdf(exportData, totalCases, sideLabel);
-      } else {
-        await downloadBalanceSheetExcel(exportData, sideLabel);
-      }
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
+  // An empty view still renders the view buttons so the user can switch back.
+  const { groupedData, totalCases } = currentData || { groupedData: {}, totalCases: 0 };
 
   // ---- Render ----
   return (
-    <div>
+    <div ref={exportRef}>
       <Form.Group className="mb-3">
         <Form.Check
           inline
           label={<span style={{ color: '#000' }}>Civil</span>}
-          name="viewMode"
+          name={radioName}
           type="radio"
           checked={viewMode === 'CIVIL'}
           onChange={() => setViewMode('CIVIL')}
@@ -136,7 +125,7 @@ export default function BalanceSheetView({ processedData }) {
         <Form.Check
           inline
           label={<span style={{ color: '#000' }}>Criminal</span>}
-          name="viewMode"
+          name={radioName}
           type="radio"
           checked={viewMode === 'CRIMINAL'}
           onChange={() => setViewMode('CRIMINAL')}
@@ -144,7 +133,7 @@ export default function BalanceSheetView({ processedData }) {
         <Form.Check
           inline
           label={<span style={{ color: '#000' }}>Civil (Ready‑Unready)</span>}
-          name="viewMode"
+          name={radioName}
           type="radio"
           checked={viewMode === 'CIVIL_RU'}
           onChange={() => setViewMode('CIVIL_RU')}
@@ -152,10 +141,10 @@ export default function BalanceSheetView({ processedData }) {
       </Form.Group>
 
       <div className="d-flex justify-content-end gap-2 mb-3">
-        <Button variant="danger" size="sm" disabled={busy === 'pdf'} onClick={() => handleDownload('pdf')}>
+        <Button variant="danger" size="sm" disabled={busy === 'pdf' || totalCases === 0} onClick={exportPdf}>
           <FileEarmarkPdf className="me-1" />{busy === 'pdf' ? 'Generating...' : 'Download PDF'}
         </Button>
-        <Button variant="success" size="sm" disabled={busy === 'excel'} onClick={() => handleDownload('excel')}>
+        <Button variant="success" size="sm" disabled={busy === 'excel' || totalCases === 0} onClick={exportExcel}>
           <FileEarmarkExcel className="me-1" />{busy === 'excel' ? 'Generating...' : 'Download Excel'}
         </Button>
       </div>
@@ -163,7 +152,9 @@ export default function BalanceSheetView({ processedData }) {
       {totalCases === 0 ? (
         <p className="text-muted">No pending {sideLabel.toLowerCase()} cases found.</p>
       ) : (
-        <Table striped bordered hover responsive size="sm">
+        <Table striped bordered hover responsive size="sm"
+          data-export-title={`${sideLabel} Balance Sheet — Total Pending Cases: ${totalCases}`}
+          data-export-sheet={sideLabel}>
           <thead className="table-dark">
             <tr>
               <th style={{ width: '30%', minWidth: '180px' }}>Category</th>
@@ -185,13 +176,13 @@ export default function BalanceSheetView({ processedData }) {
                   yearLabel = `${year}(${readyCount}R+${unreadyCount}U=${readyCount + unreadyCount})`;
 
                   const allItems = [
-                    ...yearData.READY.map(uid => ({ uid, status: 'READY' })),
-                    ...yearData.UNREADY.map(uid => ({ uid, status: 'UNREADY' })),
+                    ...yearData.READY.map(cn => ({ uid: cn, status: 'READY' })),
+                    ...yearData.UNREADY.map(cn => ({ uid: cn, status: 'UNREADY' })),
                   ];
-                  allItems.sort((a, b) => Number(a.uid) - Number(b.uid));
+                  allItems.sort((a, b) => byCaseNumber(a.uid, b.uid));
 
                   caseNumbersDisplay = allItems.map((item, index) => {
-                    const num = extractNumberFromUID(item.uid);
+                    const num = extractNumberFromCaseNo(item.uid);
                     const color = item.status === 'READY' ? '#10B981' : 'red';
                     return (
                       <span key={index} style={{ color, fontWeight: 'bold' }}>
@@ -204,7 +195,7 @@ export default function BalanceSheetView({ processedData }) {
                   const count = yearData.length;
                   yearLabel = `${year}(${count})`;
                   const sorted = yearData
-                    .map(uid => extractNumberFromUID(uid))
+                    .map(cn => extractNumberFromCaseNo(cn))
                     .sort((a, b) => Number(a) - Number(b));
                   caseNumbersDisplay = sorted.map((num, index) => (
                     <span key={index}>
@@ -229,7 +220,7 @@ export default function BalanceSheetView({ processedData }) {
                       </td>
                     )}
                     <td>{yearLabel}</td>
-                    <td>{caseNumbersDisplay}</td>
+                    <td className="text-start">{caseNumbersDisplay}</td>
                   </tr>
                 );
               });

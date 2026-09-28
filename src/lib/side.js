@@ -146,7 +146,7 @@ const criminalCases = new Set([
 
 /**
  * Determines if a case is CIVIL, CRIMINAL, or UNKNOWN based on its CAT1 type.
- * @param {string} cat1 The CAT1 type extracted from the case UID.
+ * @param {string} cat1 The CAT1 type extracted from the Case No.
  * @returns {'CIVIL' | 'CRIMINAL' | 'UNKNOWN'} The side of the case.
  */
 export function determineSide(cat1) {

@@ -1,14 +1,17 @@
 // src/lib/dateFilter.js
+import { caseKey } from './caseFilters.js';
 
 /**
- * Applies the C# date‑filtering logic to processed data.
- * 
- * @param {Array} processedData – Array of row objects from processor (must have STATUS, DATE OF REG, DATE OF DIS, UID, etc.)
+ * Applies the C# date-filtering logic to processed data.
+ *
+ * @param {Array} processedData – Array of row objects from processor (must have STATUS, DATE OF REG, DATE OF DIS, CNR, CASE NO, etc.)
  * @param {Date} fromDate – start of disposal range
  * @param {Date} toDate   – end of disposal range; also used as AS ON DATE for pending cutoff
+ * @param {{ multiCourt?: boolean }} [options] – multi-court: dedupe key includes ESTA
  * @returns {Object} { pending: Array, disposed: Array, stats: Object }
  */
-export function applyDateFilter(processedData, fromDate, toDate) {
+export function applyDateFilter(processedData, fromDate, toDate, options = {}) {
+    const multiCourt = !!options.multiCourt;
     const asOnDate = toDate; // as per updated C# logic
 
     // 1. Ignore records registered AFTER asOnDate
@@ -33,22 +36,18 @@ export function applyDateFilter(processedData, fromDate, toDate) {
             IsStillPendingFromDisposed: true,
             NextDate: r['DATE OF DIS'],
             Purpose: 'Pending as on date (decision after AS ON DATE)',
-            // This row is now treated as PENDING, so it shouldn't still carry a
-            // disposal date — that field only made sense while it was DISPOSE.
-            // The original date is preserved in NextDate above (hidden from the
-            // UI via META_FIELDS) in case anything needs it for reference later.
             'DATE OF DIS': null
         }));
 
-    // 3. Disposed that are decided ON or BEFORE asOnDate, and within FROM‑TO range
+    // 3. Disposed that are decided ON or BEFORE asOnDate, and within FROM-TO range
     const keptDisposed = disposed.filter(r => {
         const disDate = parseDate(r['DATE OF DIS']);
         return disDate && disDate <= asOnDate && disDate >= fromDate && disDate <= toDate;
     });
 
-    // Combine and deduplicate by UID (Case No.)
-    const finalPending = deduplicateByUID([...pending, ...movedToPending]);
-    const finalDisposed = deduplicateByUID(keptDisposed);
+    // Combine and deduplicate by CNR (fallback CASE NO)
+    const finalPending = deduplicateByKey([...pending, ...movedToPending], multiCourt);
+    const finalDisposed = deduplicateByKey(keptDisposed, multiCourt);
 
     // Stats
     const stats = {
@@ -69,7 +68,6 @@ function parseDate(value) {
     if (!value) return null;
     let d = null;
     if (typeof value === 'string') {
-        // try dd-MM-yyyy or other common formats
         const parts = value.trim().split(/[-/]/);
         if (parts.length === 3) {
             const day = parseInt(parts[0], 10);
@@ -85,20 +83,22 @@ function parseDate(value) {
     } else if (value instanceof Date) {
         d = value;
     } else if (typeof value === 'number') {
-        // Excel date number
         const excelEpoch = new Date(1899, 11, 30);
         d = new Date(excelEpoch.getTime() + value * 86400000);
     }
     return (d && !isNaN(d.getTime())) ? d : null;
 }
 
-function deduplicateByUID(records) {
+function deduplicateByKey(records, multiCourt) {
     const seen = new Set();
     const result = [];
     records.forEach(r => {
-        const uid = (r.UID || '').trim();
-        if (uid && !seen.has(uid)) {
-            seen.add(uid);
+        const key = caseKey(r, multiCourt);
+        if (key && !seen.has(key)) {
+            seen.add(key);
+            result.push(r);
+        } else if (!key) {
+            // keep rows without key (should be rare)
             result.push(r);
         }
     });

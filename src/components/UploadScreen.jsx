@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import cisGuideImage from '../assets/cis-file-download-guide.png';
+import { extractEstaFromFileName, ESTA_CODES } from '../lib/caseFilters';
 import './UploadScreen.css';
 
 // ─── Icon helper ─────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ const ShieldIcon = (p) => <Icon {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 
 const ImageIcon = (p) => <Icon {...p} d="M3 3h18v18H3zM8.5 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM21 15l-5-5L5 21" />;
 const ChevronDownIcon = (p) => <Icon {...p} d="m6 9 6 6 6-6" />;
 const CalendarIcon = (p) => <Icon {...p} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />;
+const SettingsIcon = (p) => <Icon {...p} d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />;
 const HelpCircleIcon = (p) => <Icon {...p} d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />;
 
 // ─── Helpers for file detection ─────────────────────────────────────────────
@@ -57,8 +59,9 @@ const detectFileType = (headers) => {
     const normalised = headers.map(h => safeString(h).toLowerCase());
     const has = (col) => normalised.includes(col.toLowerCase());
 
-    if (has('Case No.')) {
-        if (has('Next Date')) {
+    // QueryBuilder formats always include CNR (and Case No.)
+    if (has('Case No.') || has('CNR')) {
+        if (has('Next Date') || has('Purpose')) {
             return 'PENDING QUERIYBUILDER';
         } else {
             return 'DISPOSE QURYBUILDER';
@@ -106,6 +109,122 @@ const readExcelMetadata = (file) => {
     });
 };
 
+// ─── Upload warnings (pure: depends only on the file list + court mode) ───
+const computeWarnings = (items, multiCourt) => {
+    const warningsList = [];
+    const counts = {
+        'PENDING QUERIYBUILDER': 0,
+        'PENDING DESHBOARD': 0,
+        'DISPOSE QURYBUILDER': 0,
+        'DISPOSE DASHBOARD': 0,
+    };
+    const rowCounts = {
+        'PENDING QUERIYBUILDER': [],
+        'PENDING DESHBOARD': [],
+        'DISPOSE QURYBUILDER': [],
+        'DISPOSE DASHBOARD': [],
+    };
+    const unknownFiles = [];
+
+    items.forEach(item => {
+        if (item.type) {
+            if (Object.prototype.hasOwnProperty.call(counts, item.type)) {
+                counts[item.type]++;
+                if (item.rowCount !== undefined) {
+                    rowCounts[item.type].push(item.rowCount);
+                }
+            } else {
+                unknownFiles.push(item.name);
+            }
+        } else {
+            unknownFiles.push(item.name);
+        }
+    });
+
+    if (unknownFiles.length > 0) {
+        warningsList.push({
+            type: 'error',
+            title: 'Unrecognised file type',
+            message: `We couldn't classify ${unknownFiles.length > 1 ? 'these files' : 'this file'}: ${unknownFiles.join(', ')}. Please confirm ${unknownFiles.length > 1 ? "they're" : "it's"} an original, unmodified CIS export before processing.`,
+        });
+    }
+
+    const displayName = (type) => {
+        const map = {
+            'PENDING QUERIYBUILDER': 'PENDING Query Builder',
+            'PENDING DESHBOARD': 'PENDING Dashboard',
+            'DISPOSE QURYBUILDER': 'DISPOSE Query Builder',
+            'DISPOSE DASHBOARD': 'DISPOSE Dashboard',
+        };
+        return map[type] || type;
+    };
+
+    const pairs = [
+        { type1: 'PENDING QUERIYBUILDER', type2: 'PENDING DESHBOARD' },
+        { type1: 'DISPOSE QURYBUILDER', type2: 'DISPOSE DASHBOARD' },
+    ];
+    pairs.forEach(({ type1, type2 }) => {
+        if (counts[type1] > 0 && counts[type2] === 0) {
+            const title = `${displayName(type2)} file missing`;
+            const message =
+                `You've uploaded the ${displayName(type1)} file — now add the matching ${displayName(type2)} file so both sides can be cross-checked.`;
+            warningsList.push({ type: 'error', title, message });
+        }
+        if (counts[type2] > 0 && counts[type1] === 0) {
+            const title = `${displayName(type1)} file missing`;
+            const message =
+                `You've uploaded the ${displayName(type2)} file — now add the matching ${displayName(type1)} file so both sides can be cross-checked.`;
+            warningsList.push({ type: 'error', title, message });
+        }
+    });
+
+    const checkMismatch = (type1, type2) => {
+        if (counts[type1] > 0 && counts[type2] > 0) {
+            const rows1 = rowCounts[type1][0];
+            const rows2 = rowCounts[type2][0];
+            if (rows1 !== undefined && rows2 !== undefined && rows1 !== rows2) {
+                warningsList.push({
+                    type: 'error',
+                    title: 'Entry counts don\u2019t match',
+                    message: `${displayName(type1)} has ${rows1} entries but ${displayName(type2)} has ${rows2}. Please double-check both files cover the same date range before processing.`,
+                });
+            }
+        }
+    };
+    checkMismatch('PENDING QUERIYBUILDER', 'PENDING DESHBOARD');
+    checkMismatch('DISPOSE QURYBUILDER', 'DISPOSE DASHBOARD');
+
+    const totalPending = counts['PENDING QUERIYBUILDER'] + counts['PENDING DESHBOARD'];
+    const totalDisposed = counts['DISPOSE QURYBUILDER'] + counts['DISPOSE DASHBOARD'];
+    if (totalPending > 0 && totalDisposed === 0) {
+        warningsList.push({
+            type: 'info',
+            title: null,
+            message: 'Only PENDING files are uploaded, so DISPOSED statements will be left blank in the report.',
+        });
+    }
+    if (totalDisposed > 0 && totalPending === 0) {
+        warningsList.push({
+            type: 'info',
+            title: null,
+            message: 'Only DISPOSED files are uploaded, so PENDING statements will be left blank in the report.',
+        });
+    }
+
+    if (multiCourt) {
+        const noEsta = items.filter(item => !extractEstaFromFileName(item.name)).map(item => item.name);
+        if (noEsta.length > 0) {
+            warningsList.push({
+                type: 'error',
+                title: 'Establishment code missing (multi-court mode)',
+                message: `${noEsta.join(', ')} — file name must include one of ${ESTA_CODES.join(' / ')}, otherwise Dashboard columns can't be matched for ${noEsta.length > 1 ? 'these files' : 'this file'}.`,
+            });
+        }
+    }
+
+    return warningsList;
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 export default function UploadScreen({
     fileItems,
@@ -121,124 +240,22 @@ export default function UploadScreen({
     onProcess,                  // original – no date filter
     onProcessWithDates,         // new – with date filter
     onRemoveFile,
+    multiCourt = false,
+    setMultiCourt,
 }) {
     const fileInputRef = useRef(null);
     const [guideOpen, setGuideOpen] = useState(false);
     const [showExample, setShowExample] = useState(false);
+    const [advancedOpen, setAdvancedOpen] = useState(multiCourt);
 
     // ── Date state (store as YYYY-MM-DD strings for <input type="date">) ──
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
 
-    // ── Compute warnings ──
-    const computeWarnings = (items) => {
-        const warningsList = [];
-        const counts = {
-            'PENDING QUERIYBUILDER': 0,
-            'PENDING DESHBOARD': 0,
-            'DISPOSE QURYBUILDER': 0,
-            'DISPOSE DASHBOARD': 0,
-        };
-        const rowCounts = {
-            'PENDING QUERIYBUILDER': [],
-            'PENDING DESHBOARD': [],
-            'DISPOSE QURYBUILDER': [],
-            'DISPOSE DASHBOARD': [],
-        };
-        const unknownFiles = [];
-
-        items.forEach(item => {
-            if (item.type) {
-                if (counts.hasOwnProperty(item.type)) {
-                    counts[item.type]++;
-                    if (item.rowCount !== undefined) {
-                        rowCounts[item.type].push(item.rowCount);
-                    }
-                } else {
-                    unknownFiles.push(item.name);
-                }
-            } else {
-                unknownFiles.push(item.name);
-            }
-        });
-
-        if (unknownFiles.length > 0) {
-            warningsList.push({
-                type: 'error',
-                title: 'Unrecognised file type',
-                message: `We couldn't classify ${unknownFiles.length > 1 ? 'these files' : 'this file'}: ${unknownFiles.join(', ')}. Please confirm ${unknownFiles.length > 1 ? "they're" : "it's"} an original, unmodified CIS export before processing.`,
-            });
-        }
-
-        const displayName = (type) => {
-            const map = {
-                'PENDING QUERIYBUILDER': 'PENDING Query Builder',
-                'PENDING DESHBOARD': 'PENDING Dashboard',
-                'DISPOSE QURYBUILDER': 'DISPOSE Query Builder',
-                'DISPOSE DASHBOARD': 'DISPOSE Dashboard',
-            };
-            return map[type] || type;
-        };
-
-        const pairs = [
-            { type1: 'PENDING QUERIYBUILDER', type2: 'PENDING DESHBOARD' },
-            { type1: 'DISPOSE QURYBUILDER', type2: 'DISPOSE DASHBOARD' },
-        ];
-        pairs.forEach(({ type1, type2 }) => {
-            if (counts[type1] > 0 && counts[type2] === 0) {
-                const title = `${displayName(type2)} file missing`;
-                const message =
-                    `You've uploaded the ${displayName(type1)} file — now add the matching ${displayName(type2)} file so both sides can be cross-checked.`;
-                warningsList.push({ type: 'error', title, message });
-            }
-            if (counts[type2] > 0 && counts[type1] === 0) {
-                const title = `${displayName(type1)} file missing`;
-                const message =
-                    `You've uploaded the ${displayName(type2)} file — now add the matching ${displayName(type1)} file so both sides can be cross-checked.`;
-                warningsList.push({ type: 'error', title, message });
-            }
-        });
-
-        const checkMismatch = (type1, type2) => {
-            if (counts[type1] > 0 && counts[type2] > 0) {
-                const rows1 = rowCounts[type1][0];
-                const rows2 = rowCounts[type2][0];
-                if (rows1 !== undefined && rows2 !== undefined && rows1 !== rows2) {
-                    warningsList.push({
-                        type: 'error',
-                        title: 'Entry counts don\u2019t match',
-                        message: `${displayName(type1)} has ${rows1} entries but ${displayName(type2)} has ${rows2}. Please double-check both files cover the same date range before processing.`,
-                    });
-                }
-            }
-        };
-        checkMismatch('PENDING QUERIYBUILDER', 'PENDING DESHBOARD');
-        checkMismatch('DISPOSE QURYBUILDER', 'DISPOSE DASHBOARD');
-
-        const totalPending = counts['PENDING QUERIYBUILDER'] + counts['PENDING DESHBOARD'];
-        const totalDisposed = counts['DISPOSE QURYBUILDER'] + counts['DISPOSE DASHBOARD'];
-        if (totalPending > 0 && totalDisposed === 0) {
-            warningsList.push({
-                type: 'info',
-                title: null,
-                message: 'Only PENDING files are uploaded, so DISPOSED statements will be left blank in the report.',
-            });
-        }
-        if (totalDisposed > 0 && totalPending === 0) {
-            warningsList.push({
-                type: 'info',
-                title: null,
-                message: 'Only DISPOSED files are uploaded, so PENDING statements will be left blank in the report.',
-            });
-        }
-
-        return warningsList;
-    };
 
     useEffect(() => {
-        const newWarnings = computeWarnings(fileItems);
-        setWarnings(newWarnings);
-    }, [fileItems]);
+        setWarnings(computeWarnings(fileItems, multiCourt));
+    }, [fileItems, multiCourt, setWarnings]);
 
     const handleFileSelection = async (selectedFiles) => {
         const accepted = Array.from(selectedFiles).filter(f =>
@@ -262,7 +279,7 @@ export default function UploadScreen({
                     status: 'pending',
                     size: file.size,
                 });
-            } catch (err) {
+            } catch {
                 newItems.push({
                     file,
                     name: file.name,
@@ -334,6 +351,7 @@ export default function UploadScreen({
                 <h2>Upload Court Case Files</h2>
                 <p>Drop your Excel files below — we'll handle deduplication and analytics automatically.</p>
             </div>
+
 
             <div className="upload-instructions">
                 <div className="upload-instructions-head">
@@ -418,6 +436,11 @@ export default function UploadScreen({
                             </span>
                             <span className="chip-name" title={item.name}>{item.name}</span>
                             <span className="chip-size">{(item.size / 1024).toFixed(0)} KB</span>
+                            {multiCourt && (
+                                extractEstaFromFileName(item.name)
+                                    ? <span className="chip-esta">{extractEstaFromFileName(item.name)}</span>
+                                    : <span className="chip-unknown"><AlertTriangleIcon size={11} /> no ESTA</span>
+                            )}
                             {!item.type && (
                                 <span className="chip-unknown">
                                     <AlertTriangleIcon size={11} /> unknown
@@ -456,6 +479,43 @@ export default function UploadScreen({
                     })}
                 </div>
             )}
+
+            {/* ── Advanced options (rarely used) — single court is the default ── */}
+            <div className="advanced-options">
+                <button
+                    type="button"
+                    className="advanced-toggle"
+                    onClick={() => setAdvancedOpen(o => !o)}
+                    aria-expanded={advancedOpen}
+                >
+                    <SettingsIcon size={13} />
+                    <span>Advanced options</span>
+                    <ChevronDownIcon size={13} className={`chevron ${advancedOpen ? 'open' : ''}`} />
+                </button>
+                {advancedOpen && (
+                    <div className="advanced-panel">
+                        <label className="advanced-check">
+                            <input
+                                type="checkbox"
+                                checked={!!multiCourt}
+                                onChange={e => setMultiCourt && setMultiCourt(e.target.checked)}
+                                disabled={isProcessing}
+                            />
+                            <span>
+                                <strong>Multiple courts</strong> <em>(rare)</em> — match Dashboard rows by Case No. + establishment
+                            </span>
+                        </label>
+                        {multiCourt && (
+                            <div className="advanced-help">
+                                File names must include one of: {ESTA_CODES.map((c, i) => <span key={c}>{i > 0 && ' / '}<code>{c}</code></span>)}
+                                {' '}(e.g. <code>Pending_QB_PBR.xlsx</code>). Dashboard columns
+                                (Ready / Unready / Stayed, On same Stage since, Delay Reason, Contested/Uncontested) are added only when both
+                                Case No. and establishment match.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* ─── Process wrapper with date inputs ─── */}
             <div className="process-wrapper">
@@ -539,6 +599,10 @@ export default function UploadScreen({
                         <><ZapIcon size={16} />Process {fileItems.length > 0 ? `${fileItems.length} File${fileItems.length > 1 ? 's' : ''}` : 'Files'}</>
                     )}
                 </button>
+
+                {multiCourt && (
+                    <div className="process-mode-tag">⚠ Multi-court mode is ON</div>
+                )}
 
                 {isProcessing && (
                     <div className="mt-sm">

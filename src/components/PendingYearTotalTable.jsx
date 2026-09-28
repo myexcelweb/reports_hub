@@ -1,17 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Table from 'react-bootstrap/Table';
 import Button from 'react-bootstrap/Button';
 import { FileEarmarkExcel, FileEarmarkPdf } from 'react-bootstrap-icons';
 import { extractYear, filterCases } from '../lib/caseFilters';
 import { useDrillDown } from '../hooks/useDrillDown';
 import CaseListModal from './common/CaseListModal';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { useReportExport } from '../hooks/useReportExport';
 
 export default function PendingYearTotalTable({ processedData, side, sideLabel, emptyLabel }) {
   const { modal, open, close } = useDrillDown();
-  const [busy, setBusy] = useState(null);
+  const { ref: exportRef, busy, exportExcel, exportPdf } = useReportExport({ reportTitle: `B1B2-${sideLabel} — Pending Year-wise Total`, fileBase: `${sideLabel}-YearWiseTotal` });
 
   const data = useMemo(() => {
     const filtered = filterCases(processedData, { STATUS: 'PENDING', SIDE: side });
@@ -20,7 +18,7 @@ export default function PendingYearTotalTable({ processedData, side, sideLabel, 
     const pivot = {};
     const years = new Set();
     filtered.forEach(row => {
-      const year = extractYear(row.UID);
+      const year = extractYear(row['CASE NO'], row.CNR);
       if (!year) return;
       years.add(year);
       const cat2 = String(row.CAT2 || 'UNKNOWN').trim();
@@ -56,7 +54,7 @@ export default function PendingYearTotalTable({ processedData, side, sideLabel, 
     const matches = (processedData || []).filter(row =>
       row.STATUS === 'PENDING' && row.SIDE === side &&
       (cat2 ? row.CAT2 === cat2 : true) &&
-      (year ? extractYear(row.UID) === year : true)
+      (year ? extractYear(row['CASE NO'], row.CNR) === year : true)
     );
     const title = cat2 && year ? `${cat2} - ${year}`
       : cat2 ? `All Pending ${sideLabel} Cases - ${cat2}`
@@ -65,63 +63,8 @@ export default function PendingYearTotalTable({ processedData, side, sideLabel, 
     open(title, matches);  // <-- pass full rows
   };
 
-  // ---- Export ----
-  const buildTableData = () => {
-    const headers = ['Case Category', ...sortedYears, 'TOTAL'];
-    const rowsData = rows.map(row => {
-      const cols = [row.cat2];
-      sortedYears.forEach(year => cols.push(row[year] || 0));
-      cols.push(row.total);
-      return cols;
-    });
-    const grandRow = ['GRAND TOTAL'];
-    sortedYears.forEach(year => grandRow.push(grandTotals[year]));
-    grandRow.push(grandTotals.TOTAL);
-    return { headers, rows: rowsData, grandRow };
-  };
-
-  const exportExcel = async () => {
-    setBusy('excel');
-    try {
-      const wb = XLSX.utils.book_new();
-      const { headers, rows, grandRow } = buildTableData();
-      const data = [headers, ...rows, grandRow];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, ws, 'Year-wise Total');
-      XLSX.writeFile(wb, `${sideLabel}-YearWiseTotal.xlsx`);
-    } catch (err) {
-      alert('Failed to export Excel: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setBusy('pdf');
-    try {
-      const doc = new jsPDF('landscape', 'pt', 'a4');
-      const { headers, rows, grandRow } = buildTableData();
-      doc.setFontSize(14);
-      doc.text(`${sideLabel} Pending Cases – Year-wise Total`, 14, 30);
-      doc.autoTable({
-        head: [headers],
-        body: rows.concat([grandRow]),
-        startY: 50,
-        theme: 'striped',
-        headStyles: { fillColor: [15, 30, 53] },
-        styles: { fontSize: 8 },
-        margin: { left: 10, right: 10 },
-      });
-      doc.save(`${sideLabel}-YearWiseTotal.pdf`);
-    } catch (err) {
-      alert('Failed to export PDF: ' + err.message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
-    <>
+    <div ref={exportRef}>
       <div className="d-flex justify-content-end gap-2 mb-3">
         <Button variant="success" size="sm" disabled={busy === 'excel'} onClick={exportExcel}>
           <FileEarmarkExcel className="me-1" />{busy === 'excel' ? 'Generating...' : 'Download Excel'}
@@ -131,7 +74,7 @@ export default function PendingYearTotalTable({ processedData, side, sideLabel, 
         </Button>
       </div>
 
-      <Table striped bordered hover responsive>
+      <Table striped bordered hover responsive data-export-sheet={`${sideLabel} Year-wise`}>
         <thead className="table-dark">
           <tr><th className="text-center">Case Category</th>{sortedYears.map(y => <th key={y} className="text-center">{y}</th>)}<th className="text-center">GRAND TOTAL</th></tr>
         </thead>
@@ -164,6 +107,6 @@ export default function PendingYearTotalTable({ processedData, side, sideLabel, 
       </Table>
 
       <CaseListModal show={modal.show} title={modal.title} rows={modal.rows} onClose={close} />
-    </>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useCourtCaseProcessor } from './hooks/useCourtCaseProcessor';
 import ReportSelector from './components/ReportSelector';
 import UploadScreen from './components/UploadScreen';
@@ -147,7 +147,7 @@ const css = `
   .btn-outline:hover { background: rgba(0,194,178,.07); }
 
   /* ── Stat Cards ── */
-  .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 2rem; }
+  .stat-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: 1rem; margin-bottom: 1.5rem; }
   .stat-card {
     background: var(--white); border-radius: 14px;
     padding: 1.25rem 1rem; text-align: center;
@@ -162,6 +162,29 @@ const css = `
   .stat-card.c-amber .stat-num { color: var(--amber); }
   .stat-card.c-green .stat-num { color: var(--green); }
   .stat-card.c-teal  .stat-num { color: var(--teal); }
+  .stat-card.c-navy  .stat-num { color: var(--navy); }
+  .stat-card.c-red   .stat-num { color: var(--red); }
+  .stat-card.c-red   { border-top-color: var(--red); }
+  .stat-card { border-top: 3px solid var(--border); }
+  .stat-card.c-blue  { border-top-color: #3B82F6; }
+  .stat-card.c-amber { border-top-color: var(--amber); }
+  .stat-card.c-green { border-top-color: var(--green); }
+  .stat-card.c-teal  { border-top-color: var(--teal); }
+  .stat-card.c-navy  { border-top-color: var(--navy); }
+
+  .skipped-note {
+    background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.45); color: #92400E;
+    border-radius: 10px; padding: .6rem 1rem; font-size: .83rem; margin: -.5rem 0 1.25rem;
+  }
+
+  /* ── Multi-court reminder tag ── */
+  .mode-tag {
+    display: inline-flex; align-items: center; gap: .35rem;
+    background: rgba(245,166,35,.15); color: #B45309;
+    border: 1px solid rgba(245,166,35,.55);
+    font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+    padding: .2rem .6rem; border-radius: 99px; margin-left: .75rem; vertical-align: middle;
+  }
 
   /* ── Report content area ── */
   .report-content-area {
@@ -209,6 +232,9 @@ const css = `
   .status-dot.done    { background: var(--green); }
   .status-dot.pending { background: var(--amber); }
   .status-dot.error   { background: var(--red); }
+  .status-dot.idle    { background: #CBD5E1; }
+  .file-status { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; max-width: 45%; }
+  .file-status-label { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── Notifications ── */
   .notifications { position: fixed; top: 1rem; right: 1rem; z-index: 999; display: flex; flex-direction: column; gap: .5rem; max-width: 360px; }
@@ -246,54 +272,76 @@ const css = `
   }
   .footer a:hover { text-decoration: underline; }
 
-  /* ── ✨ HIGHLIGHTED "Select Report" – DARK GREEN BACKGROUND ✨ ── */
-  .report-selector-wrapper {
-    margin-top: 0.5rem;
-    background: #171341 !important;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    border-left: 2.5px solid var(--teal) !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  /* ── Report picker (big, obviously a dropdown) ── */
+  .report-picker {
+    background: linear-gradient(135deg, rgba(0,194,178,.08), rgba(15,30,53,.04));
+    border: 1px solid rgba(0,194,178,.35);
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem 1rem;
+    margin-bottom: 1.5rem;
   }
-  .report-selector-wrapper label {
-    display: block;
-    font-weight: 800 !important;
-    font-size: 1.2rem !important;
-    color: #0e0d0d !important;
-    margin-bottom: 0.5rem;
-    letter-spacing: -0.02em;
+  .report-picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
+  .report-picker-step {
+    font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--navy); margin: 0;
   }
-  .report-selector-wrapper select {
-    width: 100%;
-    padding: 0.75rem 1.25rem;
-    border: 2.5px solid var(--teal) !important;
-    border-radius: 10px;
-    background-color: #0ca170 !important;
-    color: #f1f5f9 !important;
-    font-family: inherit;
-    font-size: 1rem;
-    font-weight: 600;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23cbd5e1' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 1rem center;
-    background-size: 12px;
-    cursor: pointer;
-    transition: box-shadow 0.2s, border-color 0.2s;
+  .report-picker-count {
+    font-size: .72rem; font-weight: 600; color: var(--teal-d);
+    background: rgba(0,194,178,.12); padding: .15rem .6rem; border-radius: 99px;
   }
-  .report-selector-wrapper select:focus {
-    outline: none;
-    border-color: var(--teal-d) !important;
-    box-shadow: 0 0 0 4px rgba(0,194,178,0.3);
+  .report-picker-row { display: flex; align-items: stretch; gap: .6rem; }
+  .report-select-wrap {
+    position: relative; flex: 1; border-radius: 12px;
+    animation: picker-pulse 1.4s ease-out 2;
   }
-  .report-selector-wrapper select option {
-    background: #1e293b;
-    color: #f1f5f9;
+  .report-select-icon {
+    position: absolute; left: 1rem; top: 50%; transform: translateY(-50%);
+    color: var(--teal-d); pointer-events: none;
   }
-  .report-selector-wrapper .helper-text {
-    font-size: 0.8rem;
-    color: #cbd5e1 !important;
-    margin-top: 0.4rem;
+  .report-select {
+    width: 100%; height: 56px;
+    padding: 0 4.25rem 0 3rem;
+    border: 2.5px solid var(--teal); border-radius: 12px;
+    background: var(--white); color: var(--navy);
+    font-family: inherit; font-size: 1.05rem; font-weight: 700;
+    appearance: none; -webkit-appearance: none;
+    cursor: pointer; transition: box-shadow .18s, border-color .18s;
+    box-shadow: 0 2px 10px rgba(0,194,178,.15);
+  }
+  .report-select:hover { border-color: var(--teal-d); box-shadow: 0 0 0 4px rgba(0,194,178,.18); }
+  .report-select:focus { outline: none; border-color: var(--teal-d); box-shadow: 0 0 0 4px rgba(0,194,178,.3); }
+  .report-select optgroup { font-weight: 800; color: var(--teal-d); font-style: normal; }
+  .report-select option { font-weight: 500; color: var(--text); }
+  .report-select-arrow {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 3.25rem;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--teal); color: var(--navy);
+    border-radius: 0 12px 12px 0; pointer-events: none;
+  }
+  .report-nav-btn {
+    width: 44px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--white); color: var(--navy);
+    border: 1.5px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: all .15s;
+  }
+  .report-nav-btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal-d); }
+  .report-nav-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .report-picker-hint { font-size: .75rem; color: var(--muted); margin: .4rem 0 0 3.5rem; }
+  .report-picker-desc {
+    margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed rgba(0,194,178,.35);
+    font-size: .85rem; color: var(--text);
+  }
+  @keyframes picker-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0,194,178,.55); }
+    100% { box-shadow: 0 0 0 14px rgba(0,194,178,0); }
+  }
+
+  /* ── All Data toolbar ── */
+  .alldata-toolbar {
+    display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap;
+    background: var(--slate); border: 1px solid var(--border); border-radius: 10px;
+    padding: .5rem .75rem; margin-bottom: .6rem;
   }
 
   /* ── Utils ── */
@@ -309,16 +357,30 @@ const css = `
   .mt-xl { margin-top: 2rem; }
   .mb-md { margin-bottom: 1rem; }
 
+  @media (max-width: 1100px) {
+    .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  }
   @media (max-width: 700px) {
     .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .report-select { font-size: .9rem; }
     .topnav-tabs { gap: 0; }
     .nav-tab { padding: .45rem .6rem; font-size: .78rem; }
   }
 `;
 
+// File status (set by the upload screen and the processor) → dot colour + label
+const FILE_STATUS = {
+  pending: { dot: 'idle', label: 'Not processed yet' },
+  reading: { dot: 'pending', label: 'Reading…' },
+  success: { dot: 'done', label: 'Processed' },
+  empty: { dot: 'pending', label: 'Empty file — no rows' },
+  error: { dot: 'error', label: 'Could not read file' },
+};
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [fileItems, setFileItems] = useState([]);
+  const [multiCourt, setMultiCourt] = useState(false); // false = single court (default)
   const [warnings, setWarnings] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState('upload');
@@ -341,8 +403,16 @@ export default function App() {
     }
   }, [activeTab, processedData]);
 
+  // Jump to Reports once data arrives — only if the user is still on Upload.
   useEffect(() => {
-    if (processedData && activeTab === 'upload') setActiveTab('reports');
+    if (processedData) setActiveTab(tab => (tab === 'upload' ? 'reports' : tab));
+  }, [processedData]);
+
+  const caseStats = useMemo(() => {
+    const rows = processedData || [];
+    const pending = rows.filter(r => r.STATUS === 'PENDING').length;
+    const disposed = rows.filter(r => r.STATUS === 'DISPOSE').length;
+    return { pending, disposed, rate: rows.length ? (disposed / rows.length) * 100 : 0 };
   }, [processedData]);
 
   const notify = (message, variant = 'info') => {
@@ -352,31 +422,19 @@ export default function App() {
   };
 
   // ── Process without date filter ──
+  // The processor reports progress by passing an updater function
+  // (prev => prev.map(...)), so setFileItems is handed over directly.
   const handleProcess = () => {
     if (fileItems.length === 0) return;
     const files = fileItems.map(item => item.file);
-    const updateStatus = (fileName, status) => {
-      setFileItems(prev =>
-        prev.map(item =>
-          item.name === fileName ? { ...item, status } : item
-        )
-      );
-    };
-    processFiles(files, updateStatus);
+    processFiles(files, setFileItems, { multiCourt });
   };
 
   // ── Process with FROM/TO dates ──
   const handleProcessWithDates = (fromDate, toDate) => {
     if (fileItems.length === 0) return;
     const files = fileItems.map(item => item.file);
-    const updateStatus = (fileName, status) => {
-      setFileItems(prev =>
-        prev.map(item =>
-          item.name === fileName ? { ...item, status } : item
-        )
-      );
-    };
-    processFilesWithDates(files, fromDate, toDate, updateStatus);
+    processFilesWithDates(files, fromDate, toDate, setFileItems, { multiCourt });
   };
 
   const removeFile = (i) => {
@@ -385,9 +443,9 @@ export default function App() {
   };
 
   const tabs = [
-    { key: 'upload', label: 'Data Upload', Icon: UploadIcon },
-    { key: 'reports', label: 'Analysis & Reports', Icon: ChartIcon, disabled: !processedData },
-    { key: 'detailed', label: 'Detailed Case Analysis', Icon: FileIcon, disabled: !processedData },
+    { key: 'upload', label: 'Data Upload', icon: <UploadIcon size={15} /> },
+    { key: 'reports', label: 'Analysis & Reports', icon: <ChartIcon size={15} />, disabled: !processedData },
+    { key: 'detailed', label: 'Detailed Case Analysis', icon: <FileIcon size={15} />, disabled: !processedData },
   ];
 
   return (
@@ -420,13 +478,13 @@ export default function App() {
             <div className="brand-sub">Monthly • Quarterly Statements (પત્રકો).</div>
           </a>
           <div className="topnav-tabs">
-            {tabs.map(({ key, label, Icon: TabIcon, disabled }) => (
+            {tabs.map(({ key, label, icon, disabled }) => (
               <button key={key}
                 className={`nav-tab ${activeTab === key ? 'active' : ''}`}
                 disabled={disabled}
                 onClick={() => setActiveTab(key)}
               >
-                <TabIcon size={15} />
+                {icon}
                 {label}
                 {key === 'reports' && processedData && (
                   <span className="nav-badge">New</span>
@@ -453,8 +511,7 @@ export default function App() {
 
           {/* ═══════════ UPLOAD TAB ═══════════ */}
           {activeTab === 'upload' && (
-            <UploadScreen
-              fileItems={fileItems}
+            <UploadScreen fileItems={fileItems}
               setFileItems={setFileItems}
               warnings={warnings}
               setWarnings={setWarnings}
@@ -467,14 +524,19 @@ export default function App() {
               onProcess={handleProcess}                     // original
               onProcessWithDates={handleProcessWithDates}   // with filter
               onRemoveFile={removeFile}
-            />
+            multiCourt={multiCourt}
+            setMultiCourt={setMultiCourt}
+          />
           )}
 
           {/* ═══════════ REPORTS TAB ═══════════ */}
           {activeTab === 'reports' && processedData && (
             <>
               <div className="tab-header">
-                <div className="tab-title">Analysis & Reports</div>
+                <div className="tab-title">
+                  Analysis & Reports
+                  {multiCourt && <span className="mode-tag">Multi-court mode</span>}
+                </div>
                 <button className="btn-outline" onClick={downloadAllReports}>
                   <DownloadIcon size={16} />
                   Download Excel
@@ -488,7 +550,7 @@ export default function App() {
                     <div className="stat-num">{finalSummary.grandTotal}</div>
                     <div className="stat-label">Total Records</div>
                   </div>
-                  <div className="stat-card c-amber">
+                  <div className="stat-card c-red">
                     <div className="stat-num">{finalSummary.duplicatesRemoved}</div>
                     <div className="stat-label">Duplicates Removed</div>
                   </div>
@@ -496,30 +558,38 @@ export default function App() {
                     <div className="stat-num">{finalSummary.uniqueRecords}</div>
                     <div className="stat-label">Unique Records</div>
                   </div>
-                  <div className="stat-card c-teal">
-                    <div className="stat-num">
-                      {/* FIX: this used to multiply by 100 * 2, which doubled the
-                          percentage (e.g. a real 92% would display as 184%,
-                          sometimes over 100%). It's just unique/total * 100. */}
-                      {((finalSummary.uniqueRecords / finalSummary.grandTotal) * 100).toFixed(1)}%
-                    </div>
-                    <div className="stat-label">Success Rate</div>
+                  <div className="stat-card c-amber">
+                    <div className="stat-num">{caseStats.pending}</div>
+                    <div className="stat-label">Pending</div>
                   </div>
+                  <div className="stat-card c-navy">
+                    <div className="stat-num">{caseStats.disposed}</div>
+                    <div className="stat-label">Disposed</div>
+                  </div>
+                  <div className="stat-card c-teal">
+                    <div className="stat-num">{caseStats.rate.toFixed(1)}%</div>
+                    <div className="stat-label">Disposal Rate</div>
+                  </div>
+                </div>
+              )}
+
+              {finalSummary?.dateFilterExcluded > 0 && (
+                <div className="skipped-note">
+                  ⓘ <strong>{finalSummary.dateFilterExcluded}</strong> case{finalSummary.dateFilterExcluded > 1 ? 's are' : ' is'} not
+                  counted because of the FROM / TO date filter (registered after the TO date, or disposed outside FROM – TO).
+                </div>
+              )}
+
+              {finalSummary?.skippedNoKey > 0 && (
+                <div className="skipped-note">
+                  ⚠ <strong>{finalSummary.skippedNoKey}</strong> row{finalSummary.skippedNoKey > 1 ? 's were' : ' was'} skipped
+                  because {finalSummary.skippedNoKey > 1 ? 'they have' : 'it has'} no CNR and no Case No. (usually blank or total rows in the Excel file).
                 </div>
               )}
 
               {/* ── Report content area with HIGHLIGHTED selector ── */}
               <div className="report-content-area">
-                <div className="report-selector-wrapper">
-                  <ReportSelector
-                    processedData={processedData}
-                    finalSummary={finalSummary}
-                    id="report-select"
-                  />
-                  <p className="helper-text">
-                    BJ/OBJ split by age category, plus disposal‑nature breakdown.
-                  </p>
-                </div>
+                <ReportSelector processedData={processedData} id="report-select" />
               </div>
             </>
           )}
@@ -557,7 +627,18 @@ export default function App() {
                           {!item.type && <span style={{ marginLeft: '0.5rem', color: 'var(--amber)' }}>⚠️ Unknown type</span>}
                         </div>
                       </div>
-                      <div className={`status-dot ${item.status === 'done' ? 'done' : item.status === 'error' ? 'error' : 'pending'}`} />
+                      {(() => {
+                        const s = FILE_STATUS[item.status] || FILE_STATUS.pending;
+                        const label = item.status === 'success' && item.processedRows != null
+                          ? `${s.label} · ${item.processedRows} rows`
+                          : item.status === 'error' && item.error ? `${s.label}: ${item.error}` : s.label;
+                        return (
+                          <div className="file-status" title={label}>
+                            <span className={`status-dot ${s.dot}`} />
+                            <span className="file-status-label">{label}</span>
+                          </div>
+                        );
+                      })()}
                       <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}
                         onClick={() => removeFile(i)}>
                         <TrashIcon size={16} />
