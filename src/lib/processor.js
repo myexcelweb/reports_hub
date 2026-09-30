@@ -312,10 +312,10 @@ export class CourtCaseProcessor {
 	 * Returns 'IPC SPECIAL' ONLY IF:
 	 *   (a) ACT contains specific IPC sections (409, 467, 465, 468, 471), OR
 	 *       specific BNS sections/subsections (316(5), 336(2), 336(3), 338, 340(2)), AND
-	 *   (b) CAT1 is exactly 'CC'.
+	 *   (b) CAT1 is exactly 'CC' or 'SC'.
 	 */
 	checkIpcSpecial(act, cat1) {
-		if (cat1 !== 'CC') return '';
+		if (cat1 !== 'CC' && cat1 !== 'SC') return '';
 		if (!act) return '';
 		const actStr = String(act);
 		const ipcCodes = ['409', '467', '465', '468', '471'];
@@ -372,7 +372,9 @@ export class CourtCaseProcessor {
 
 	renameCat2(cat2) {
 		if (!cat2) return cat2;
-		if (cat2 === 'CC/IPC/IPC SPECIAL') return 'CC/IPC SPECIAL';
+		// Any CC or SC case flagged IPC SPECIAL is grouped as 'CC/IPC SPECIAL' or
+		// 'SC/IPC SPECIAL', whatever its NATURE (IPC, Prohibition, Sessions ...).
+		if (/^(CC|SC)\/.*\/IPC SPECIAL$/.test(cat2)) return cat2.split('/')[0] + '/IPC SPECIAL';
 		if (cat2 === 'CRMA J/Appln under Protection of Woman Domestic') return 'CRMA J/DOMESTIC';
 		if (cat2 === 'CRMA J/Bail Application') return 'CRMA J/BAIL';
 		if (cat2 === 'CRMA J/Other Misc. Appln.') return 'CRMA J/OTHER';
