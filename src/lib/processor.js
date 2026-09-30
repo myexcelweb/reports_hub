@@ -325,7 +325,7 @@ export class CourtCaseProcessor {
 		const bnsCodes = ['316\\(5\\)', '336\\(2\\)', '336\\(3\\)', '338', '340\\(2\\)'];
 		const hasBnsCode =
 			actStr.includes('THE BHARATIYA NYAYA SANHITA') &&
-			bnsCodes.some((code) => new RegExp(`\\b${code}\\b`).test(actStr));
+			bnsCodes.some((code) => new RegExp(`(?<![0-9])${code}(?![0-9])`).test(actStr));
 		return (hasIpcSpecialCode || hasBnsCode) ? 'IPC SPECIAL' : '';
 	}
 
