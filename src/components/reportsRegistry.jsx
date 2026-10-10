@@ -6,7 +6,6 @@ import AgeBreakdownTable from './AgeBreakdownTable';
 import ReadyUnreadyTable from './ReadyUnreadyTable';
 import PendingYearTotalTable from './PendingYearTotalTable';
 import BalanceSheetView from './BalanceSheetView';
-import CrmaSummaryTable from './CrmaSummaryTable';
 
 // Order of the groups in the report picker dropdown.
 export const REPORT_GROUPS = ['Status', 'Disposed', 'Pending', 'Data'];
@@ -35,14 +34,6 @@ export const REPORTS = [
     label: 'All Data',
     description: 'Complete processed dataset — view, and download as Excel or PDF.',
     render: (data) => <AllDataTable processedData={data} />,
-  },
-  {
-    key: 'crma-summary',
-    short: 'CRMA Summary',
-    group: 'Data',
-    label: 'CRMA Summary — Act, Type, Category & Nature',
-    description: 'CRMA cases counted by Act Section, case type, category and nature.',
-    render: (data) => <CrmaSummaryTable processedData={data} />,
   },
   {
     key: 'part1',
