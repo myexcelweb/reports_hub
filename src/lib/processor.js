@@ -355,8 +355,13 @@ export class CourtCaseProcessor {
 		if (cat1 !== 'CRMA J') return '';
 		if (nature !== 'Other Misc. Appln.') return '';
 
-		const hasPhrase = act.includes('THE BHARATIYA NAGARIK SURAKSHA SANHITA');
-		const hasSection = /\b(497|498|503)\b/.test(act);
+		const actStr = act.toUpperCase();
+		const hasPhrase = actStr.includes('THE BHARATIYA NAGARIK SURAKSHA SANHITA');
+		const has497 = /\b497\b/.test(actStr);
+		const has503 = /\b503\b/.test(actStr);
+		// Cyber takes precedence: one case must not be tagged as both MUDDAMAL and CYBER.
+		if (hasPhrase && has497 && has503) return '';
+		const hasSection = /\b(497|498|503)\b/.test(actStr);
 
 		return (hasPhrase && hasSection) ? 'MUDDAMAL' : '';
 	}
@@ -370,15 +375,28 @@ export class CourtCaseProcessor {
 		return parts.length > 0 ? parts.join('/') : 'UNKNOWN';
 	}
 
-	renameCat2(cat2) {
+	renameCat2(cat2, act = '') {
 		if (!cat2) return cat2;
+		// Separate cyber applications under the Bharatiya Nagarik Suraksha Sanhita.
+		if (
+			(cat2 === 'CRMA J/Other Misc. Appln.' || cat2 === 'CRMA J/Other Misc. Appln./MUDDAMAL') &&
+			String(act).toUpperCase().includes('THE BHARATIYA NAGARIK SURAKSHA SANHITA, 2023') &&
+			/\b497\b/.test(act) &&
+			/\b503\b/.test(act)
+		) return 'CRMA J/OTHER-CYBER';
+		// Keep CRMA J cases under the Gujarat Secondary Education Act in their
+		// own category instead of combining them with other miscellaneous applications.
+		if (
+			cat2 === 'CRMA J/Other Misc. Appln.' &&
+			String(act).toUpperCase().includes('GUJARAT SECONDARY AND HIGHER SECONDARY EDUCATION ACT')
+		) return 'CRMA J/OTHER-GUJARAT SECONDARY EDUCATION ACT';
 		// Any CC or SC case flagged IPC SPECIAL is grouped as 'CC/IPC SPECIAL' or
 		// 'SC/IPC SPECIAL', whatever its NATURE (IPC, Prohibition, Sessions ...).
 		if (/^(CC|SC)\/.*\/IPC SPECIAL$/.test(cat2)) return cat2.split('/')[0] + '/IPC SPECIAL';
 		if (cat2 === 'CRMA J/Appln under Protection of Woman Domestic') return 'CRMA J/DOMESTIC';
 		if (cat2 === 'CRMA J/Bail Application') return 'CRMA J/BAIL';
 		if (cat2 === 'CRMA J/Other Misc. Appln.') return 'CRMA J/OTHER';
-		if (cat2 === 'CRMA J/Other Misc. Appln./MUDDAMAL') return 'CRMA J/MUDDAMAL';
+		if (cat2 === 'CRMA J/Other Misc. Appln./MUDDAMAL') return 'CRMA J/OTHER-MUDDAMAL';
 		if (cat2 === 'CMA SC/Appl. for Succession & Probate Certi. and Letter of Administration')
 			return 'CMA SC/SUCCESSION-PROBATE-LA';
 		return cat2;
@@ -561,7 +579,7 @@ export class CourtCaseProcessor {
 				row['CASE AGAINST WOMEN'] = this.checkCaseAgainstWomen(row['ACT']);
 				row['CRMA SPECIAL'] = this.checkCrmaSpecial(row);
 				const rawCat2 = this.createCat2(row);
-				row['CAT2'] = this.renameCat2(rawCat2);
+				row['CAT2'] = this.renameCat2(rawCat2, row['ACT']);
 				// Convenience year field (from Case No, fallback CNR)
 				row['YEAR'] = extractYear(caseNo, row['CNR']);
 				return row;
